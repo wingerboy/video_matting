@@ -1,5 +1,5 @@
 ---
-library_name: BiRefNet
+library_name: birefnet
 tags:
 - background-removal
 - mask-generation
