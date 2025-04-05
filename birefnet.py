@@ -1976,7 +1976,7 @@ from einops import rearrange
 # from models.ing import *
 # from models.refiner import Refiner, RefinerPVTInChannels4, RefUNet
 # from models.stem_layer import StemLayer
-from .BiRefNet_config import BiRefNetConfig
+from BiRefNet_config import BiRefNetConfig
 
 
 def image2patches(image, grid_h=2, grid_w=2, patch_ref=None, transformation='b c (hg h) (wg w) -> (b hg wg) c h w'):
