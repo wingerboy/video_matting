@@ -97,3 +97,92 @@ https://github.com/ZhengPeng7/BiRefNet
   year={2024}
 }
 ```
+
+# 视频前景提取工具
+
+这是一个用于从视频中提取前景的工具，使用先进的深度学习模型BEN2-Lite和BiRefNet-Lite来处理视频，生成带透明通道的前景或带有指定背景的合成视频。
+
+## 功能特点
+
+- 支持多种深度学习模型处理
+- 自动GPU加速（如果可用）
+- 批处理加速视频处理
+- 支持WebM格式（带透明通道）或MP4格式（带背景）
+- 自定义背景颜色或背景图片
+- 进度显示和状态更新
+- 友好的Web界面
+
+## 安装要求
+
+1. Python 3.8+
+2. PyTorch 2.0+ (带CUDA支持更佳)
+3. Streamlit
+
+### 安装依赖
+
+```bash
+pip install torch torchvision --extra-index-url https://download.pytorch.org/whl/cu117
+pip install streamlit opencv-python pillow safetensors ffmpeg-python
+```
+
+## 准备模型文件
+
+在运行应用前，您需要下载模型文件并放置在`models`目录中：
+
+1. 创建`models`文件夹：
+   ```bash
+   mkdir -p models
+   ```
+
+2. 将BEN2-Lite和BiRefNet-Lite模型文件放入`models`文件夹
+   - `ben2_lite_2K.safetensors`
+   - `BiRefNet_lite_2K.safetensors`
+
+## 运行Web界面
+
+启动Streamlit Web界面，并将端口设置为3001以允许远程访问：
+
+```bash
+streamlit run webui.py --server.port=3001 --server.address=0.0.0.0
+```
+
+访问 `http://您的IP地址:3001` 来使用Web界面。
+
+## 通过命令行使用
+
+您也可以通过命令行直接处理视频：
+
+```bash
+python video_extractor.py --video 视频路径.mp4 --model BEN2-Lite --webm
+```
+
+参数说明：
+- `--video`: 输入视频路径
+- `--model`: 使用的模型 (BEN2-Lite 或 BiRefNet-Lite)
+- `--output`: 输出目录
+- `--webm`: 输出WebM格式（带透明通道）
+
+## 使用说明
+
+1. 上传视频文件
+2. 选择模型类型(BEN2-Lite或BiRefNet-Lite)
+3. 调整处理参数
+4. 可选择上传背景图片
+5. 点击"开始处理"按钮
+6. 等待处理完成，下载生成的视频
+
+## 系统要求
+
+- 内存: 最低8GB，推荐16GB+
+- GPU: 推荐NVIDIA GPU (6GB+ VRAM)
+- 存储: 根据视频大小和时长，至少需要几GB可用空间
+
+## 故障排除
+
+- 如果出现"CUDA out of memory"错误，请减小批处理大小
+- 如果模型加载失败，请确保模型文件已正确放置在models目录中
+- 如果处理速度过慢，请考虑使用具有更多VRAM的GPU
+
+## 授权
+
+本项目使用的BEN2和BiRefNet模型有其各自的授权条款，请在使用前查阅相关信息。
