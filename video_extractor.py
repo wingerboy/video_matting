@@ -137,77 +137,77 @@ if device.type == 'cuda':
 model_config = {
     "BEN2_Base": {
         "method": "ben2",
-        "model_path": "/root/gpufree-data/BEN2_Base.pth",
+        "model_path": "/root/gpufree-data/models/BEN2_Base.pth",
         "image_size": (1024, 1024),
     },
     "BiRefNet-HRSOD_DHU": {
         "method": "birefnet",
-        "model_path": "/root/gpufree-data/BiRefNet-HRSOD_DHU-epoch_115.pth",
+        "model_path": "/root/gpufree-data/models/BiRefNet-HRSOD_DHU-epoch_115.pth",
         "image_size": (1024, 1024),
     },
     "BiRefNet-massive-TR_DIS5K_TR_TEs": {
         "method": "birefnet",
-        "model_path": "/root/gpufree-data/BiRefNet-massive-TR_DIS5K_TR_TEs-epoch_420.pth",
+        "model_path": "/root/gpufree-data/models/BiRefNet-massive-TR_DIS5K_TR_TEs-epoch_420.pth",
         "image_size": (1024, 1024),
     },
     "BiRefNet": {
         "method": "birefnet",
-        "model_path": "/root/gpufree-data/BiRefNet.safetensors",
+        "model_path": "/root/gpufree-data/models/BiRefNet.safetensors",
         "image_size": (1024, 1024),
     },
     "BiRefNet_dynamic-matting": {
         "method": "birefnet",
-        "model_path": "/root/gpufree-data/BiRefNet_dynamic-matting-epoch_15.pth",
+        "model_path": "/root/gpufree-data/models/BiRefNet_dynamic-matting-epoch_15.pth",
         "image_size": (1024, 1024),
     },
     "BiRefNet-COD": {
         "method": "birefnet",
-        "model_path": "/root/gpufree-data/BiRefNet-COD-epoch_125.pth",
+        "model_path": "/root/gpufree-data/models/BiRefNet-COD-epoch_125.pth",
         "image_size": (1024, 1024),
     },
     "BiRefNet-general-bb_swin_v1_tiny": {
         "method": "birefnet",
-        "model_path": "/root/gpufree-data/BiRefNet-general-bb_swin_v1_tiny-epoch_232.pth",
+        "model_path": "/root/gpufree-data/models/BiRefNet-general-bb_swin_v1_tiny-epoch_232.pth",
         "image_size": (1024, 1024),
     },
     "BiRefNet-matting": {
         "method": "birefnet",
-        "model_path": "/root/gpufree-data/BiRefNet-matting-epoch_100.pth",
+        "model_path": "/root/gpufree-data/models/BiRefNet-matting-epoch_100.pth",
         "image_size": (1024, 1024),
     },
     "BiRefNet_HR-general": {
         "method": "birefnet",
-        "model_path": "/root/gpufree-data/BiRefNet_HR-general-epoch_130.pth",
+        "model_path": "/root/gpufree-data/models/BiRefNet_HR-general-epoch_130.pth",
         "image_size": (1024, 1024),
     },
     "BiRefNet_lite-general-2K": {
         "method": "birefnet",
-        "model_path": "/root/gpufree-data/BiRefNet_lite-general-2K-epoch_232.pth",
+        "model_path": "/root/gpufree-data/models/BiRefNet_lite-general-2K-epoch_232.pth",
         "image_size": (1024, 1024),
     },
     "BiRefNet-DIS": {
         "method": "birefnet",
-        "model_path": "/root/gpufree-data/BiRefNet-DIS-epoch_590.pth",
+        "model_path": "/root/gpufree-data/models/BiRefNet-DIS-epoch_590.pth",
         "image_size": (1024, 1024),
     },
     "BiRefNet-general": {
         "method": "birefnet",
-        "model_path": "/root/gpufree-data/BiRefNet-general-epoch_244.pth",
+        "model_path": "/root/gpufree-data/models/BiRefNet-general-epoch_244.pth",
         "image_size": (1024, 1024),
     },  
     "BiRefNet-portrait": {
         "method": "birefnet",
-        "model_path": "/root/gpufree-data/BiRefNet-portrait-epoch_150.pth",
+        "model_path": "/root/gpufree-data/models/BiRefNet-portrait-epoch_150.pth",
         "image_size": (1024, 1024),
     },   
     "BiRefNet_HR-matting": {
         "method": "birefnet",
-        "model_path": "/root/gpufree-data/BiRefNet_HR-matting-epoch_135.pth",
+        "model_path": "/root/gpufree-data/models/BiRefNet_HR-matting-epoch_135.pth",
         "image_size": (1024, 1024),
     },   
     "BiRefNet_lite": {
         "method": "birefnet",
-        "model_path": "/root/gpufree-data/BiRefNet_lite.safetensors",
+        "model_path": "/root/gpufree-data/models/BiRefNet_lite.safetensors",
         "image_size": (1024, 1024),
     }    
 }
@@ -1415,4 +1415,6 @@ if __name__ == "__main__":
 python test_gpu.py --model "/root/gpufree-data/BiRefNet-DIS-epoch_590.pth" --video "/root/gpufree-data/111.mp4" --size "1024,1024" --batch 8
 
 python test_gpu_all.py --method ben2 --model "/root/gpufree-data/models/BiRefNet.safetensors" --video "/root/gpufree-data/samplevideo/111.mp4" --size "1024,1024" --batch 8 --output "/root/gpufree-data/output/"
+
+python video_extractor.py --model "BiRefNet" --video "/root/gpufree-data/samplevideo/111.mp4" --size "1024,1024" --batch 8 --output "/root/gpufree-data/output/"
 ''' 
