@@ -704,8 +704,11 @@ def predict_video_mask_birefnet(
                     # 前景提取
                     foregrounds = refine_foreground_gpu(input_denorm, masks)
                     
-                    # 创建默认纯色背景
-                    background = create_color_background(bg_color, (original_w, original_h), device)
+                    # 获取前景的尺寸，用于创建匹配的背景
+                    _, _, fg_h, fg_w = foregrounds.shape
+                    
+                    # 创建与前景相同尺寸的背景（而不是使用原始视频尺寸）
+                    background = create_color_background(bg_color, (fg_w, fg_h), device)
                     background = background.unsqueeze(0).expand(foregrounds.shape[0], -1, -1, -1)
                     background = background.to(dtype=foregrounds.dtype)
                     
@@ -775,8 +778,23 @@ def predict_video_mask_birefnet(
                 # 从原始视频提取音频
                 original_clip = VideoFileClip(video_path)
                 
+                # 检查帧序列是否为空
+                if not mask_frames or len(mask_frames) == 0:
+                    callback('warning', 85, "没有处理的帧序列，无法生成带音频的视频")
+                    print("警告: 没有处理的帧序列，无法生成带音频的视频")
+                    print("将使用无音频的临时视频")
+                    import shutil
+                    shutil.move(temp_mask_path, output_mask_path)
+                    shutil.move(temp_comp_path, output_composite_path)
+                    return output_mask_path, output_composite_path
+                
                 # 处理掩码视频 (黑白)
                 sorted_mask_frames = [path for _, path in sorted(mask_frames, key=lambda x: x[0])]
+                # 检查排序后的帧是否存在
+                for frame_path in sorted_mask_frames:
+                    if not os.path.exists(frame_path):
+                        print(f"警告: 帧文件丢失: {frame_path}")
+                        
                 mask_clip = ImageSequenceClip(sorted_mask_frames, fps=fps)
                 mask_clip = mask_clip.set_audio(original_clip.audio)
                 
@@ -785,10 +803,22 @@ def predict_video_mask_birefnet(
                 
                 # 处理合成视频 (彩色)
                 callback('finalizing', 90, "保存合成视频...")
-                sorted_comp_frames = [path for _, path in sorted(comp_frames, key=lambda x: x[0])]
-                comp_clip = ImageSequenceClip(sorted_comp_frames, fps=fps)
-                comp_clip.set_audio(original_clip.audio)
-                comp_clip.write_videofile(output_composite_path, codec='libx264', audio_codec='aac')
+                if not comp_frames or len(comp_frames) == 0:
+                    callback('warning', 90, "没有合成帧序列，无法生成带音频的合成视频")
+                    print("警告: 没有合成帧序列，无法生成带音频的合成视频")
+                    # 使用OpenCV生成的临时视频
+                    import shutil
+                    shutil.move(temp_comp_path, output_composite_path)
+                else:
+                    sorted_comp_frames = [path for _, path in sorted(comp_frames, key=lambda x: x[0])]
+                    # 检查排序后的帧是否存在
+                    for frame_path in sorted_comp_frames:
+                        if not os.path.exists(frame_path):
+                            print(f"警告: 帧文件丢失: {frame_path}")
+                            
+                    comp_clip = ImageSequenceClip(sorted_comp_frames, fps=fps)
+                    comp_clip = comp_clip.set_audio(original_clip.audio)
+                    comp_clip.write_videofile(output_composite_path, codec='libx264', audio_codec='aac')
                 
                 # 清理资源
                 original_clip.close()
