@@ -134,6 +134,84 @@ if device.type == 'cuda':
     print(f"GPU: {torch.cuda.get_device_name(0)}")
     print(f"可用GPU内存: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
 
+model_config = {
+    "BEN2_Base": {
+        "method": "ben2",
+        "model_path": "/root/gpufree-data/BEN2_Base.pth",
+        "image_size": (1024, 1024),
+    },
+    "BiRefNet-HRSOD_DHU": {
+        "method": "birefnet",
+        "model_path": "/root/gpufree-data/BiRefNet-HRSOD_DHU-epoch_115.pth",
+        "image_size": (1024, 1024),
+    },
+    "BiRefNet-massive-TR_DIS5K_TR_TEs": {
+        "method": "birefnet",
+        "model_path": "/root/gpufree-data/BiRefNet-massive-TR_DIS5K_TR_TEs-epoch_420.pth",
+        "image_size": (1024, 1024),
+    },
+    "BiRefNet": {
+        "method": "birefnet",
+        "model_path": "/root/gpufree-data/BiRefNet.safetensors",
+        "image_size": (1024, 1024),
+    },
+    "BiRefNet_dynamic-matting": {
+        "method": "birefnet",
+        "model_path": "/root/gpufree-data/BiRefNet_dynamic-matting-epoch_15.pth",
+        "image_size": (1024, 1024),
+    },
+    "BiRefNet-COD": {
+        "method": "birefnet",
+        "model_path": "/root/gpufree-data/BiRefNet-COD-epoch_125.pth",
+        "image_size": (1024, 1024),
+    },
+    "BiRefNet-general-bb_swin_v1_tiny": {
+        "method": "birefnet",
+        "model_path": "/root/gpufree-data/BiRefNet-general-bb_swin_v1_tiny-epoch_232.pth",
+        "image_size": (1024, 1024),
+    },
+    "BiRefNet-matting": {
+        "method": "birefnet",
+        "model_path": "/root/gpufree-data/BiRefNet-matting-epoch_100.pth",
+        "image_size": (1024, 1024),
+    },
+    "BiRefNet_HR-general": {
+        "method": "birefnet",
+        "model_path": "/root/gpufree-data/BiRefNet_HR-general-epoch_130.pth",
+        "image_size": (1024, 1024),
+    },
+    "BiRefNet_lite-general-2K": {
+        "method": "birefnet",
+        "model_path": "/root/gpufree-data/BiRefNet_lite-general-2K-epoch_232.pth",
+        "image_size": (1024, 1024),
+    },
+    "BiRefNet-DIS": {
+        "method": "birefnet",
+        "model_path": "/root/gpufree-data/BiRefNet-DIS-epoch_590.pth",
+        "image_size": (1024, 1024),
+    },
+    "BiRefNet-general": {
+        "method": "birefnet",
+        "model_path": "/root/gpufree-data/BiRefNet-general-epoch_244.pth",
+        "image_size": (1024, 1024),
+    },  
+    "BiRefNet-portrait": {
+        "method": "birefnet",
+        "model_path": "/root/gpufree-data/BiRefNet-portrait-epoch_150.pth",
+        "image_size": (1024, 1024),
+    },   
+    "BiRefNet_HR-matting": {
+        "method": "birefnet",
+        "model_path": "/root/gpufree-data/BiRefNet_HR-matting-epoch_135.pth",
+        "image_size": (1024, 1024),
+    },   
+    "BiRefNet_lite": {
+        "method": "birefnet",
+        "model_path": "/root/gpufree-data/BiRefNet_lite.safetensors",
+        "image_size": (1024, 1024),
+    }    
+}
+
 # 清理状态字典帮助函数
 def check_state_dict(state_dict, unwanted_prefixes=['module.', '_orig_mod.']):
     for k, v in list(state_dict.items()):
@@ -1227,17 +1305,13 @@ def extract_video(
 if __name__ == "__main__":
     # 解析命令行参数
     parser = argparse.ArgumentParser(description='BiRefNet/BEN2视频抠图处理')
-    parser.add_argument('--method', type=str, default="birefnet", choices=['birefnet', 'ben2'],
-                        help='模型类型: birefnet 或 ben2')
     parser.add_argument('--video', type=str, required=True, 
                         help='输入视频路径')
     parser.add_argument('--model', type=str, required=True, 
                         help='模型路径，支持.pth和.safetensors格式，自动识别lite和完整版')
     parser.add_argument('--output', type=str, default="", 
                         help='输出目录')
-    parser.add_argument('--prefix', type=str, default=None,
-                        help='输出文件前缀，默认使用时间戳')
-    parser.add_argument('--size', type=str, default="2560,1440", 
+    parser.add_argument('--size', type=str, default="", 
                         help='处理分辨率，格式为width,height')
     parser.add_argument('--batch', type=int, default=0, 
                         help='批处理大小，0表示自动根据GPU内存决定')
@@ -1274,11 +1348,6 @@ if __name__ == "__main__":
     else:
         print("已检测到moviepy库，将保留原始视频的音频轨道")
     
-    # 检查BEN2模型
-    if args.method == "ben2" and not HAS_BEN2:
-        print("错误: 您选择了BEN2模型，但未安装BEN2库")
-        print("请安装BEN2模型后重试")
-        sys.exit(1)
     
     # 解析背景颜色
     bg_color = (0, 255, 0)  # 默认绿色
@@ -1297,7 +1366,7 @@ if __name__ == "__main__":
         image_size = (width, height)
         print(f"设置处理分辨率: {image_size}")
     except:
-        image_size = (2560, 1440)
+        image_size = model_config[args.model]["image_size"]
         print(f"使用默认处理分辨率: {image_size}")
     
     # 输出目录
@@ -1323,9 +1392,9 @@ if __name__ == "__main__":
     # 调用统一入口函数进行处理
     mask_path, composite_path = extract_video(
         video_path=args.video,
-        model_path=args.model,
+        model_path=model_config[args.model]["model_path"],
         output_dir=output_dir,
-        method=args.method,
+        method=model_config[args.model]["method"],
         image_size=image_size,
         batch_size=batch_size,
         bg_path=args.bg,
@@ -1345,5 +1414,5 @@ if __name__ == "__main__":
 '''
 python test_gpu.py --model "/root/gpufree-data/BiRefNet-DIS-epoch_590.pth" --video "/root/gpufree-data/111.mp4" --size "1024,1024" --batch 8
 
-python test_gpu_all.py --model "/root/gpufree-data/models/BiRefNet.safetensors" --video "/root/gpufree-data/samplevideo/111.mp4" --size "1024,1024" --batch 8
+python test_gpu_all.py --method ben2 --model "/root/gpufree-data/models/BiRefNet.safetensors" --video "/root/gpufree-data/samplevideo/111.mp4" --size "1024,1024" --batch 8 --output "/root/gpufree-data/output/"
 ''' 
