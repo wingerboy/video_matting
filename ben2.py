@@ -1239,102 +1239,114 @@ class BEN_Base(nn.Module):
         cv2.destroyAllWindows()
 
 
-    def segment_video_v2(self, video_path, 
-                        output_mask_path=None, 
-                        output_composite_path=None, 
-                        fps=0, 
-                        refine_foreground=False, 
-                        batch=1,  
-                        rgb_value=(0, 255, 0), 
-                        progress_callback=None):
-        
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            raise IOError(f"Cannot open video: {video_path}")
-
-        original_fps = cap.get(cv2.CAP_PROP_FPS)
-        original_fps = 30 if original_fps == 0 else original_fps
-        fps = original_fps if fps == 0 else fps
-
-        ret, first_frame = cap.read()
-        if not ret:
-            raise ValueError("No frames found in the video.")
-        height, width = first_frame.shape[:2]
-        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-
-        foregrounds = []
-        masks = []  # Store masks separately if needed
-        frame_idx = 0
-        processed_count = 0
-        batch_frames = []
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-        # Initial progress report
-        if progress_callback:
-            progress_callback(0, total_frames)
-
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                if batch_frames:
+    def segment_video_v2(self, video_path, output_mask_path=None, output_composite_path=None, fps=0, refine_foreground=True, batch=4, rgb_value=(0, 255, 0), progress_callback=None):
+        """
+        优化后的视频分割函数，支持真正的批处理
+        """
+        try:
+            cap = cv2.VideoCapture(video_path)
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            
+            if fps <= 0:
+                fps = cap.get(cv2.CAP_PROP_FPS)
+            
+            # 获取视频尺寸
+            orig_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            orig_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            
+            # 准备结果容器
+            foregrounds = []
+            masks = []
+            
+            # 批处理缓冲区
+            batch_frames = []
+            frame_idxs = []  # 记录帧索引，用于保持顺序
+            
+            # 处理计数
+            frame_idx = 0
+            processed_count = 0
+            
+            # 预分配，提高效率
+            if total_frames > 0:
+                # 预分配空间给结果，避免频繁重新分配内存
+                foregrounds = [None] * total_frames
+                if output_mask_path:
+                    masks = [None] * total_frames
+            
+            # 主处理循环
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    # 处理最后一批（可能不满batch_size）
+                    if batch_frames:
+                        batch_results = self.inference(batch_frames, refine_foreground)
+                        
+                        # 保持顺序放入结果
+                        for i, result in enumerate(batch_results):
+                            idx = frame_idxs[i]
+                            foregrounds[idx] = result
+                            
+                            # 提取掩码
+                            if output_mask_path and result.mode == 'RGBA':
+                                masks[idx] = result.split()[3]  # Alpha channel
+                        
+                        if progress_callback:
+                            progress_callback(frame_idx, total_frames)
+                    break
+                
+                # 处理读取的帧
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                pil_frame = Image.fromarray(frame_rgb)
+                
+                # 添加到批处理队列
+                batch_frames.append(pil_frame)
+                frame_idxs.append(frame_idx)
+                
+                # 当积累足够的帧时进行批处理
+                if len(batch_frames) >= batch:
+                    # 批量推理，提高效率
                     batch_results = self.inference(batch_frames, refine_foreground)
-                    if isinstance(batch_results, Image.Image):
-                        foregrounds.append(batch_results)
-                    else:
-                        foregrounds.extend(batch_results)
+                    
+                    # 保持顺序放入结果
+                    for i, result in enumerate(batch_results):
+                        idx = frame_idxs[i]
+                        foregrounds[idx] = result
+                        
+                        # 提取掩码
+                        if output_mask_path and result.mode == 'RGBA':
+                            masks[idx] = result.split()[3]  # Alpha channel
+                    
+                    # 清空批处理队列
+                    batch_frames = []
+                    frame_idxs = []
+                    processed_count += batch
+                    
+                    # 报告进度
                     if progress_callback:
                         progress_callback(frame_idx, total_frames)
-                break
-
-            # Process every frame instead of using intervals
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            pil_frame = Image.fromarray(frame_rgb)
-            batch_frames.append(pil_frame)
-            
-            if len(batch_frames) == batch:
-                batch_results = self.inference(batch_frames, refine_foreground)
-                if isinstance(batch_results, Image.Image):
-                    foregrounds.append(batch_results)
-                else:
-                    foregrounds.extend(batch_results)
-                    
-                    # Extract masks from the foreground images if needed
-                    if output_mask_path :
-                        for fg in batch_results:
-                            # Extract alpha channel as mask
-                            if fg.mode == 'RGBA':
-                                mask = fg.split()[3]  # Alpha channel
-                                masks.append(mask)
-                                
-                if progress_callback:
-                    # Call progress_callback after each batch with current frame number and total frames
-                    progress_callback(frame_idx, total_frames)
-                batch_frames = []
-                processed_count += batch
-
-            frame_idx += 1
-
-        # Call progress callback one last time to indicate completion
-        if progress_callback:
-            progress_callback(total_frames, total_frames)
-
-        # Video export phase
-        if progress_callback:
-            # Signal starting export phase
-            progress_callback(total_frames, total_frames, "Exporting video")
-
-        cap.release()
-        
-        pil_images_to_mp4(foregrounds, output_composite_path, fps=original_fps, rgb_value=rgb_value)
-        
-        # Save mask video if requested
-        if output_mask_path and masks:
-            # Convert grayscale PIL images to RGB for MP4 output
-            rgb_masks = [Image.merge('RGB', (m, m, m)) for m in masks]
-            pil_images_to_mp4(rgb_masks, output_mask_path, fps=original_fps)
                 
-        cv2.destroyAllWindows()
-        return output_mask_path, output_composite_path
+                frame_idx += 1
+            
+            cap.release()
+            
+            # 移除可能的None值（如果视频帧计数不准确）
+            foregrounds = [f for f in foregrounds if f is not None]
+            masks = [m for m in masks if m is not None]
+            
+            # 生成输出文件
+            if output_mask_path and masks:
+                self.save_frames_to_video(masks, output_mask_path, fps, is_mask=True)
+            
+            if output_composite_path and foregrounds:
+                self.save_frames_with_bg(foregrounds, output_composite_path, fps, rgb_value, orig_width, orig_height)
+            
+            return output_mask_path, output_composite_path
+        
+        except Exception as e:
+            print(f"视频处理错误: {e}")
+            import traceback
+            traceback.print_exc()
+            return None, None
 
 
 
