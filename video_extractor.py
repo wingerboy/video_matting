@@ -789,45 +789,125 @@ def predict_video_mask_birefnet(
                     return output_mask_path, output_composite_path
                 
                 # 处理掩码视频 (黑白)
-                sorted_mask_frames = [path for _, path in sorted(mask_frames, key=lambda x: x[0])]
-                # 检查排序后的帧是否存在
-                for frame_path in sorted_mask_frames:
-                    if not os.path.exists(frame_path):
-                        print(f"警告: 帧文件丢失: {frame_path}")
+                try:
+                    # 调试信息
+                    print(f"掩码帧数量: {len(mask_frames)}")
+                    # 检查mask_frames是否包含有效元组
+                    for i, frame_data in enumerate(mask_frames[:5]):
+                        print(f"掩码帧 {i} 结构: {frame_data}")
+                    
+                    # 修改排序逻辑，更加健壮地处理
+                    sorted_mask_frames = []
+                    for frame_data in mask_frames:
+                        try:
+                            # 确保frame_data是有效的元组，并且有两个元素
+                            if isinstance(frame_data, tuple) and len(frame_data) >= 2:
+                                index, path = frame_data[0], frame_data[1]
+                                if os.path.exists(path):
+                                    sorted_mask_frames.append((index, path))
+                                else:
+                                    print(f"警告: 掩码帧文件不存在: {path}")
+                            else:
+                                print(f"警告: 掩码帧数据格式无效: {frame_data}")
+                        except Exception as e:
+                            print(f"处理掩码帧时出错: {e}")
+                    
+                    # 如果没有有效帧，使用无音频视频
+                    if not sorted_mask_frames:
+                        raise ValueError("没有有效的掩码帧")
                         
-                mask_clip = ImageSequenceClip(sorted_mask_frames, fps=fps)
-                mask_clip = mask_clip.set_audio(original_clip.audio)
-                
-                callback('finalizing', 85, "保存掩码视频...")
-                mask_clip.write_videofile(output_mask_path, codec='libx264', audio_codec='aac')
+                    # 对有效帧排序并提取路径
+                    sorted_mask_frames.sort(key=lambda x: x[0])
+                    sorted_mask_paths = [path for _, path in sorted_mask_frames]
+                    
+                    # 检查是否有足够的帧
+                    if len(sorted_mask_paths) < 2:
+                        print(f"警告: 掩码帧太少 ({len(sorted_mask_paths)}), 可能无法创建视频")
+                    
+                    # 创建视频
+                    mask_clip = ImageSequenceClip(sorted_mask_paths, fps=fps)
+                    mask_clip = mask_clip.set_audio(original_clip.audio)
+                    
+                    callback('finalizing', 85, "保存掩码视频...")
+                    mask_clip.write_videofile(output_mask_path, codec='libx264', audio_codec='aac')
+                except Exception as e:
+                    print(f"处理掩码视频时出错: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    # 使用无音频视频
+                    import shutil
+                    shutil.move(temp_mask_path, output_mask_path)
                 
                 # 处理合成视频 (彩色)
                 callback('finalizing', 90, "保存合成视频...")
-                if not comp_frames or len(comp_frames) == 0:
-                    callback('warning', 90, "没有合成帧序列，无法生成带音频的合成视频")
-                    print("警告: 没有合成帧序列，无法生成带音频的合成视频")
-                    # 使用OpenCV生成的临时视频
+                try:
+                    if not comp_frames or len(comp_frames) == 0:
+                        callback('warning', 90, "没有合成帧序列，无法生成带音频的合成视频")
+                        print("警告: 没有合成帧序列，无法生成带音频的合成视频")
+                        # 使用OpenCV生成的临时视频
+                        import shutil
+                        shutil.move(temp_comp_path, output_composite_path)
+                    else:
+                        # 调试信息
+                        print(f"合成帧数量: {len(comp_frames)}")
+                        # 检查comp_frames是否包含有效元组
+                        for i, frame_data in enumerate(comp_frames[:5]):
+                            print(f"合成帧 {i} 结构: {frame_data}")
+                        
+                        # 修改排序逻辑，更加健壮地处理
+                        sorted_comp_frames = []
+                        for frame_data in comp_frames:
+                            try:
+                                # 确保frame_data是有效的元组，并且有两个元素
+                                if isinstance(frame_data, tuple) and len(frame_data) >= 2:
+                                    index, path = frame_data[0], frame_data[1]
+                                    if os.path.exists(path):
+                                        sorted_comp_frames.append((index, path))
+                                    else:
+                                        print(f"警告: 合成帧文件不存在: {path}")
+                                else:
+                                    print(f"警告: 合成帧数据格式无效: {frame_data}")
+                            except Exception as e:
+                                print(f"处理合成帧时出错: {e}")
+                        
+                        # 如果没有有效帧，使用无音频视频
+                        if not sorted_comp_frames:
+                            raise ValueError("没有有效的合成帧")
+                            
+                        # 对有效帧排序并提取路径
+                        sorted_comp_frames.sort(key=lambda x: x[0])
+                        sorted_comp_paths = [path for _, path in sorted_comp_frames]
+                        
+                        # 检查是否有足够的帧
+                        if len(sorted_comp_paths) < 2:
+                            print(f"警告: 合成帧太少 ({len(sorted_comp_paths)}), 可能无法创建视频")
+                            
+                        # 创建视频
+                        comp_clip = ImageSequenceClip(sorted_comp_paths, fps=fps)
+                        comp_clip = comp_clip.set_audio(original_clip.audio)
+                        comp_clip.write_videofile(output_composite_path, codec='libx264', audio_codec='aac')
+                except Exception as e:
+                    print(f"处理合成视频时出错: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    # 使用无音频视频
                     import shutil
                     shutil.move(temp_comp_path, output_composite_path)
-                else:
-                    sorted_comp_frames = [path for _, path in sorted(comp_frames, key=lambda x: x[0])]
-                    # 检查排序后的帧是否存在
-                    for frame_path in sorted_comp_frames:
-                        if not os.path.exists(frame_path):
-                            print(f"警告: 帧文件丢失: {frame_path}")
-                            
-                    comp_clip = ImageSequenceClip(sorted_comp_frames, fps=fps)
-                    comp_clip = comp_clip.set_audio(original_clip.audio)
-                    comp_clip.write_videofile(output_composite_path, codec='libx264', audio_codec='aac')
                 
                 # 清理资源
-                original_clip.close()
+                try:
+                    if original_clip:
+                        original_clip.close()
+                except Exception as clip_error:
+                    print(f"关闭原始视频时出错: {clip_error}")
                 
                 print("视频音频处理完成!")
             except Exception as e:
                 error_msg = f"处理音频时出错: {e}"
                 callback('warning', 90, error_msg)
                 print(error_msg)
+                import traceback
+                traceback.print_exc()
                 print("将使用无音频的视频文件")
                 
                 # 如果moviepy处理失败，使用OpenCV生成的无音频视频
@@ -1447,4 +1527,7 @@ python test_gpu.py --model "/root/gpufree-data/BiRefNet-DIS-epoch_590.pth" --vid
 python test_gpu_all.py --method ben2 --model "/root/gpufree-data/models/BiRefNet.safetensors" --video "/root/gpufree-data/samplevideo/111.mp4" --size "1024,1024" --batch 8 --output "/root/gpufree-data/output/"
 
 python video_extractor.py --model "BiRefNet" --video "/root/gpufree-data/samplevideo/111.mp4" --size "1024,1024" --batch 8 --output "/root/gpufree-data/output/"
+python video_extractor.py --model "BEN2_Base" --video "/root/gpufree-data/samplevideo/111.mp4" --size "1024,1024" --batch 8 --output "/root/gpufree-data/output/"
+
+python video_extractor.py --model "BiRefNet_lite-general-2K" --video "/root/gpufree-data/samplevideo/111.mp4" --size "1024,1024" --batch 8 --output "/root/gpufree-data/output/"
 ''' 
