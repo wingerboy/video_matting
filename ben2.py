@@ -1040,34 +1040,50 @@ class BEN_Base(nn.Module):
 
 
         else:
+            # 实现真正的批处理
+            batch_size = len(image)
+            device = next(self.parameters()).device
+            
+            # 预处理所有图像
+            preprocessed = []
+            original_images = []
+            sizes = []
+            
+            for img in image:
+                img_p, h, w, original = rgb_loader_refiner(img)
+                preprocessed.append(img_p)
+                original_images.append(original)
+                sizes.append((w, h))
+            
+            # 一次性转换整个批次
+            if torch.cuda.is_available():
+                batch_tensors = torch.stack([img_transform(img) for img in preprocessed]).to(device)
+            else:
+                batch_tensors = torch.stack([img_transform32(img) for img in preprocessed]).to(device)
+            
+            # 一次性推理整个批次
+            with torch.no_grad():
+                batch_results = self.forward(batch_tensors)
+            
+            # 处理每个结果
             foregrounds = []
-            for batch in image:
-                image, h, w,original_image =  rgb_loader_refiner(batch)
-                if torch.cuda.is_available():
-
-                    img_tensor = img_transform(image).unsqueeze(0).to(next(self.parameters()).device)
-                else:
-                    img_tensor = img_transform32(image).unsqueeze(0).to(next(self.parameters()).device)
-
-                with torch.no_grad():
-                    res = self.forward(img_tensor)
-
-                if refine_foreground == True:
-
+            for i in range(batch_size):
+                res = batch_results[i:i+1]  # 保持维度兼容性
+                w, h = sizes[i]
+                original_image = original_images[i]
+                
+                if refine_foreground:
                     pred_pil = transforms.ToPILImage()(res.squeeze())
                     image_masked = refine_foreground_process(original_image, pred_pil)
-                    
                     image_masked.putalpha(pred_pil.resize(original_image.size))
-
                     foregrounds.append(image_masked)
                 else:
-                    alpha = postprocess_image(res, im_size=[w,h])
+                    alpha = postprocess_image(res, im_size=[w, h])
                     pred_pil = transforms.ToPILImage()(alpha)
                     mask = pred_pil.resize(original_image.size)
                     original_image.putalpha(mask)
-                    # mask = Image.fromarray(alpha)
                     foregrounds.append(original_image)
-
+            
             return foregrounds
 
 
@@ -1348,6 +1364,99 @@ class BEN_Base(nn.Module):
             traceback.print_exc()
             return None, None
 
+    
+    def save_frames_to_video(self, masks, output_path, fps, is_mask=True):
+        """
+        将掩码序列保存为视频文件
+        
+        Args:
+            masks: 掩码图像列表 (PIL Images)
+            output_path: 输出视频文件路径
+            fps: 帧率
+            is_mask: 是否为掩码图像 (需要转RGB)
+        """
+        if not masks:
+            print("掩码列表为空，无法保存视频")
+            return
+            
+        # 确保输出目录存在
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        
+        # 获取第一帧尺寸
+        first_mask = masks[0]
+        width, height = first_mask.size
+        
+        # 设置视频编码器
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        video_writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        
+        for mask in masks:
+            # 如果是灰度掩码，需要转为RGB视频可以处理的格式
+            if is_mask and mask.mode == 'L':
+                # 将灰度掩码转为RGB (三通道相同)
+                mask_rgb = Image.merge('RGB', (mask, mask, mask))
+                frame = np.array(mask_rgb)
+            else:
+                frame = np.array(mask.convert('RGB'))
+                
+            # 转换为OpenCV格式 (BGR)
+            frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            
+            # 写入视频
+            video_writer.write(frame)
+        
+        # 释放资源
+        video_writer.release()
+        print(f"已保存掩码视频: {output_path}")
+        
+    def save_frames_with_bg(self, foregrounds, output_path, fps, rgb_value, orig_width, orig_height):
+        """
+        将前景图像序列合成到背景色上并保存为视频
+        
+        Args:
+            foregrounds: 前景图像列表 (带Alpha通道的PIL Images)
+            output_path: 输出视频文件路径
+            fps: 帧率
+            rgb_value: 背景RGB颜色
+            orig_width: 原始视频宽度
+            orig_height: 原始视频高度
+        """
+        if not foregrounds:
+            print("前景列表为空，无法保存视频")
+            return
+            
+        # 确保输出目录存在
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        
+        # 设置视频编码器
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        video_writer = cv2.VideoWriter(output_path, fourcc, fps, (orig_width, orig_height))
+        
+        for img in foregrounds:
+            # 调整图像尺寸为原始视频尺寸
+            if img.size != (orig_width, orig_height):
+                img = img.resize((orig_width, orig_height), Image.LANCZOS)
+                
+            # 合成到背景色上
+            if img.mode == 'RGBA':
+                # 创建背景
+                bg = Image.new('RGB', img.size, rgb_value)
+                # 使用alpha通道合成
+                img_composite = Image.alpha_composite(bg.convert('RGBA'), img).convert('RGB')
+            else:
+                # 若无Alpha通道，直接使用
+                img_composite = img.convert('RGB')
+                
+            # 转换为OpenCV格式
+            frame = cv2.cvtColor(np.array(img_composite), cv2.COLOR_RGB2BGR)
+            
+            # 写入视频
+            video_writer.write(frame)
+        
+        # 释放资源
+        video_writer.release()
+        print(f"已保存合成视频: {output_path}")
+
 
 
 def rgb_loader_refiner( original_image):
@@ -1555,5 +1664,6 @@ def rgb_loader_refiner( original_image):
         image = image.resize((1024, 1024), resample=Image.LANCZOS)
 
         return image, h, w,original_image
+
 
 

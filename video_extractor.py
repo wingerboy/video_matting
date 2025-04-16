@@ -135,40 +135,53 @@ if device.type == 'cuda':
     print(f"可用GPU内存: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
 
 model_config = {
+    # 耗时 半小时左右
     "BEN2_Base": {
         "method": "ben2",
         "model_path": "/root/gpufree-data/models/BEN2_Base.pth",
         "image_size": (1024, 1024),
+        "max_batch_size": 16,
     },
+    # 耗时 616.55秒左右
     "BiRefNet-HRSOD_DHU": {
         "method": "birefnet",
         "model_path": "/root/gpufree-data/models/BiRefNet-HRSOD_DHU-epoch_115.pth",
         "image_size": (1024, 1024),
+        "max_batch_size": 16,
     },
+    # 耗时 619s 左右
     "BiRefNet-massive-TR_DIS5K_TR_TEs": {
         "method": "birefnet",
         "model_path": "/root/gpufree-data/models/BiRefNet-massive-TR_DIS5K_TR_TEs-epoch_420.pth",
         "image_size": (1024, 1024),
+        "max_batch_size": 16,
     },
+    # 耗时 657.93s 左右
     "BiRefNet": {
         "method": "birefnet",
         "model_path": "/root/gpufree-data/models/BiRefNet.safetensors",
         "image_size": (1024, 1024),
+        "max_batch_size": 16,
     },
+    # 耗时 609.84 左右
     "BiRefNet_dynamic-matting": {
         "method": "birefnet",
-        "model_path": "/root/gpufree-data/models/BiRefNet_dynamic-matting-epoch_15.pth",
+        "model_path": "/root/gpufree-data/models/BiRefNet_dynamic-matting-epoch_159.pth",
         "image_size": (1024, 1024),
+        "max_batch_size": 16,
     },
+    # 耗时  左右  --代码错误，待修复
     "BiRefNet-COD": {
         "method": "birefnet",
         "model_path": "/root/gpufree-data/models/BiRefNet-COD-epoch_125.pth",
         "image_size": (1024, 1024),
     },
+    # 耗时 526.06s 左右
     "BiRefNet-general-bb_swin_v1_tiny": {
         "method": "birefnet",
         "model_path": "/root/gpufree-data/models/BiRefNet-general-bb_swin_v1_tiny-epoch_232.pth",
         "image_size": (1024, 1024),
+        "max_batch_size": 16,
     },
     "BiRefNet-matting": {
         "method": "birefnet",
@@ -178,12 +191,12 @@ model_config = {
     "BiRefNet_HR-general": {
         "method": "birefnet",
         "model_path": "/root/gpufree-data/models/BiRefNet_HR-general-epoch_130.pth",
-        "image_size": (1024, 1024),
+        "image_size": (2048, 2048),
     },
     "BiRefNet_lite-general-2K": {
         "method": "birefnet",
         "model_path": "/root/gpufree-data/models/BiRefNet_lite-general-2K-epoch_232.pth",
-        "image_size": (1024, 1024),
+        "image_size": (2560, 1440),
     },
     "BiRefNet-DIS": {
         "method": "birefnet",
@@ -203,7 +216,7 @@ model_config = {
     "BiRefNet_HR-matting": {
         "method": "birefnet",
         "model_path": "/root/gpufree-data/models/BiRefNet_HR-matting-epoch_135.pth",
-        "image_size": (1024, 1024),
+        "image_size": (2048, 2048),
     },   
     "BiRefNet_lite": {
         "method": "birefnet",
