@@ -186,3 +186,147 @@ python video_extractor.py --video 视频路径.mp4 --model BEN2-Lite --webm
 ## 授权
 
 本项目使用的BEN2和BiRefNet模型有其各自的授权条款，请在使用前查阅相关信息。
+
+# AI视频处理服务
+
+这是一个基于FastAPI开发的AI视频处理后端服务，提供视频分割功能，可被Java后端服务调用。
+
+## 功能特点
+
+- 视频前景分割与抠图
+- 异步任务处理，支持长时间运行的任务
+- 实时进度报告
+- 支持自定义背景
+- 任务状态跟踪
+- 基于BEN2模型的高质量视频处理
+
+## 安装与配置
+
+### 系统要求
+
+- Python 3.8+
+- CUDA 11.0+ (推荐，用于GPU加速)
+- 足够的存储空间用于处理视频
+
+### 安装步骤
+
+1. 克隆代码库：
+
+```bash
+git clone https://github.com/your-repo/ai-video-service.git
+cd ai-video-service
+```
+
+2. 安装依赖：
+
+```bash
+pip install -r requirements.txt
+```
+
+3. 下载预训练模型：
+
+下载BEN2预训练模型并放置于指定目录。
+
+### 环境变量配置
+
+可通过环境变量自定义服务配置：
+
+- `HOST`: 服务监听地址，默认为 "0.0.0.0"
+- `PORT`: 服务端口，默认为 8000
+- `JAVA_CALLBACK_URL`: Java后端回调URL，默认为 "http://localhost:8080/api/task/update"
+
+## 启动服务
+
+```bash
+python server.py
+```
+
+或使用uvicorn：
+
+```bash
+uvicorn server:app --host 0.0.0.0 --port 8000 --reload
+```
+
+## API接口
+
+### 1. 视频分割任务
+
+**POST** `/api/video/segment`
+
+启动一个视频分割任务。
+
+请求参数：
+```json
+{
+  "task_id": "任务ID",
+  "origin_video_path": "原始视频路径",
+  "fore_video_path": "输出前景视频路径",
+  "origin_video_download_url": "原始视频下载URL",
+  "model_path": "模型路径",
+  "bg_path_download_url": "背景图片下载URL(可选)"
+}
+```
+
+响应：
+```json
+{
+  "taskId": "任务ID",
+  "status": "accepted",
+  "message": "视频分割任务已接收并开始处理"
+}
+```
+
+### 2. 查询任务状态
+
+**GET** `/api/task/{task_id}/status`
+
+查询指定任务的处理状态。
+
+响应：
+```json
+{
+  "status": "PROCESSING",
+  "progress": 45.5,
+  "message": "处理中: 150/300",
+  "updated_at": 1639012345.678
+}
+```
+
+### 3. 健康检查
+
+**GET** `/health`
+
+检查服务是否正常运行。
+
+响应：
+```json
+{
+  "status": "ok",
+  "service": "AI视频处理服务"
+}
+```
+
+## 与Java后端集成
+
+本服务会通过HTTP POST请求向Java后端发送任务进度和结果通知，格式如下：
+
+```json
+{
+  "taskId": "任务ID",
+  "status": "PROCESSING|COMPLETED|FAILED",
+  "progress": 进度百分比,
+  "message": "进度信息"
+}
+```
+
+## 错误处理
+
+- 如果任务处理失败，状态将设置为"FAILED"，并提供错误详情
+- 服务会处理所有异常并通过日志记录详细信息
+- API接口会返回标准HTTP错误码和错误信息
+
+## 开发与调试
+
+- 服务使用异步任务处理，不会阻塞主线程
+- 可通过FastAPI的自动生成文档页面进行接口测试: `http://localhost:8000/docs`
+- 日志会输出到控制台，可用于调试和监控

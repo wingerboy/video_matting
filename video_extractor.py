@@ -134,97 +134,6 @@ if device.type == 'cuda':
     print(f"GPU: {torch.cuda.get_device_name(0)}")
     print(f"可用GPU内存: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
 
-model_config = {
-    # 耗时 半小时左右
-    "BEN2_Base": {
-        "method": "ben2",
-        "model_path": "/root/gpufree-data/models/BEN2_Base.pth",
-        "image_size": (1024, 1024),
-        "max_batch_size": 16,
-    },
-    # 耗时 616.55秒左右
-    "BiRefNet-HRSOD_DHU": {
-        "method": "birefnet",
-        "model_path": "/root/gpufree-data/models/BiRefNet-HRSOD_DHU-epoch_115.pth",
-        "image_size": (1024, 1024),
-        "max_batch_size": 16,
-    },
-    # 耗时 619s 左右
-    "BiRefNet-massive-TR_DIS5K_TR_TEs": {
-        "method": "birefnet",
-        "model_path": "/root/gpufree-data/models/BiRefNet-massive-TR_DIS5K_TR_TEs-epoch_420.pth",
-        "image_size": (1024, 1024),
-        "max_batch_size": 16,
-    },
-    # 耗时 657.93s 左右
-    "BiRefNet": {
-        "method": "birefnet",
-        "model_path": "/root/gpufree-data/models/BiRefNet.safetensors",
-        "image_size": (1024, 1024),
-        "max_batch_size": 16,
-    },
-    # 耗时 609.84 左右
-    "BiRefNet_dynamic-matting": {
-        "method": "birefnet",
-        "model_path": "/root/gpufree-data/models/BiRefNet_dynamic-matting-epoch_159.pth",
-        "image_size": (1024, 1024),
-        "max_batch_size": 16,
-    },
-    # 耗时  左右  --代码错误，待修复
-    "BiRefNet-COD": {
-        "method": "birefnet",
-        "model_path": "/root/gpufree-data/models/BiRefNet-COD-epoch_125.pth",
-        "image_size": (1024, 1024),
-    },
-    # 耗时 526.06s 左右
-    "BiRefNet-general-bb_swin_v1_tiny": {
-        "method": "birefnet",
-        "model_path": "/root/gpufree-data/models/BiRefNet-general-bb_swin_v1_tiny-epoch_232.pth",
-        "image_size": (1024, 1024),
-        "max_batch_size": 16,
-    },
-    "BiRefNet-matting": {
-        "method": "birefnet",
-        "model_path": "/root/gpufree-data/models/BiRefNet-matting-epoch_100.pth",
-        "image_size": (1024, 1024),
-    },
-    "BiRefNet_HR-general": {
-        "method": "birefnet",
-        "model_path": "/root/gpufree-data/models/BiRefNet_HR-general-epoch_130.pth",
-        "image_size": (2048, 2048),
-    },
-    "BiRefNet_lite-general-2K": {
-        "method": "birefnet",
-        "model_path": "/root/gpufree-data/models/BiRefNet_lite-general-2K-epoch_232.pth",
-        "image_size": (2560, 1440),
-    },
-    "BiRefNet-DIS": {
-        "method": "birefnet",
-        "model_path": "/root/gpufree-data/models/BiRefNet-DIS-epoch_590.pth",
-        "image_size": (1024, 1024),
-    },
-    "BiRefNet-general": {
-        "method": "birefnet",
-        "model_path": "/root/gpufree-data/models/BiRefNet-general-epoch_244.pth",
-        "image_size": (1024, 1024),
-    },  
-    "BiRefNet-portrait": {
-        "method": "birefnet",
-        "model_path": "/root/gpufree-data/models/BiRefNet-portrait-epoch_150.pth",
-        "image_size": (1024, 1024),
-    },   
-    "BiRefNet_HR-matting": {
-        "method": "birefnet",
-        "model_path": "/root/gpufree-data/models/BiRefNet_HR-matting-epoch_135.pth",
-        "image_size": (2048, 2048),
-    },   
-    "BiRefNet_lite": {
-        "method": "birefnet",
-        "model_path": "/root/gpufree-data/models/BiRefNet_lite.safetensors",
-        "image_size": (1024, 1024),
-    }    
-}
-
 # 清理状态字典帮助函数
 def check_state_dict(state_dict, unwanted_prefixes=['module.', '_orig_mod.']):
     for k, v in list(state_dict.items()):
@@ -637,7 +546,6 @@ def predict_video_mask_birefnet(
         if not ret:
             callback('error', 0, "无法读取视频")
             print("无法读取视频")
-            return None, None
             
         original_h, original_w = first_frame.shape[:2]
         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # 重置到开始
@@ -769,15 +677,12 @@ def predict_video_mask_birefnet(
         if not os.path.exists(output_mask_path) or not os.path.exists(output_composite_path):
             callback('warning', 100, "输出文件可能未正确生成")
             print("警告: 输出文件可能未正确生成")
-            
-        return output_mask_path, output_composite_path
     
     except Exception as e:
         callback('error', 0, f"处理视频时发生错误: {e}")
         print(f"处理视频时发生错误: {e}")
         import traceback
         traceback.print_exc()
-        return None, None
 
 def predict_video_mask_ben2(
     video_path, 
@@ -794,7 +699,7 @@ def predict_video_mask_ben2(
     参数:
         video_path: 输入视频路径
         output_mask_path: 输出掩码视频路径
-        output_composite_path: 输出合成视频路径
+        output_composite_path: 输出前景视频路径
         model_path: BEN2模型路径
         batch_size: 批处理大小
         bg_color: 默认背景颜色RGB值
@@ -808,10 +713,8 @@ def predict_video_mask_ben2(
         callback('error', 0, error_msg)
         print(error_msg)
         print("请安装BEN2模型后重试")
-        return None, None
         
     callback('init', 0, f"开始处理视频: {video_path}")
-    print(f"使用BEN2模型处理视频: {video_path}")
     
     try:
         # 初始化BEN2模型
@@ -885,416 +788,122 @@ def predict_video_mask_ben2(
 
 def apply_custom_background(
     video_path,
-    mask_path,
-    output_path,
-    bg_path=None,
-    bg_color=(0, 255, 0),
-    callback=default_callback,
-    include_audio=True
-):
-    """
-    将视频前景与自定义背景合成，并保留原始视频的音频
-    
-    参数:
-        video_path: 原始视频路径
-        mask_path: 预测的掩码视频路径
-        output_path: 输出合成视频路径
-        bg_path: 背景图像路径，如果为None则使用bg_color
-        bg_color: 背景颜色RGB值，默认为绿色(0,255,0)
-        callback: 回调函数，用于报告进度
-        include_audio: 是否包含音频，默认为True
-        
-    返回:
-        str: 成功时返回输出视频路径，失败时返回None
-    """
-    if not include_audio or not HAS_MOVIEPY:
-        # 无音频模式处理或没有安装moviepy库
-        if include_audio and not HAS_MOVIEPY:
-            error_msg = "警告: 未安装moviepy库，无法处理音频"
-            callback('warning', 0, error_msg)
-            print(error_msg)
-            print("将生成无音频视频，如需音频请安装: pip install moviepy")
-            
-        return apply_custom_background_no_audio(
-            video_path, mask_path, output_path, bg_path, bg_color, callback
-        )
-    
-    # 以下为包含音频的处理流程
-    # 资源管理变量，用于清理
-    original_video = None
-    mask_video = None
-    background_clip = None
-    composite_clip = None
-    
-    try:
-        callback('init', 0, f"开始背景合成处理")
-        
-        # 确保输出目录存在
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        
-        # 检查输入文件是否存在
-        if not os.path.exists(video_path):
-            error_msg = f"错误: 原始视频不存在: {video_path}"
-            callback('error', 0, error_msg)
-            print(error_msg)
-            return None
-            
-        if not os.path.exists(mask_path):
-            error_msg = f"错误: 掩码视频不存在: {mask_path}"
-            callback('error', 0, error_msg)
-            print(error_msg)
-            return None
-            
-        # 检查背景图片路径（如果指定）
-        if bg_path and not os.path.exists(bg_path):
-            warn_msg = f"警告: 指定的背景图片不存在: {bg_path}，将使用纯色背景"
-            callback('warning', 5, warn_msg)
-            print(warn_msg)
-            bg_path = None
-        
-        # 加载原始视频和掩码视频
-        callback('loading', 10, "加载视频...")
-        original_video = VideoFileClip(video_path)
-        mask_video = VideoFileClip(mask_path, has_mask=False)
-        
-        # 检查两个视频的尺寸是否匹配
-        if original_video.size != mask_video.size:
-            warn_msg = f"警告: 原始视频({original_video.size})和掩码视频({mask_video.size})尺寸不匹配"
-            callback('warning', 15, warn_msg)
-            print(warn_msg)
-            print("尝试调整掩码视频尺寸以匹配原始视频...")
-            # 调整掩码视频尺寸
-            mask_video = mask_video.resize(original_video.size)
-        
-        # 视频基本信息
-        width, height = original_video.size
-        fps = original_video.fps
-        duration = original_video.duration
-        
-        # 检查是否有音频
-        has_audio = original_video.audio is not None
-        if not has_audio:
-            print("原始视频没有音频轨道")
-        else:
-            print(f"检测到音频轨道, 时长: {original_video.audio.duration}秒")
-        
-        # 处理背景
-        callback('processing', 30, "处理背景...")
-        if bg_path:
-            # 检查图片格式
-            valid_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff']
-            if not any(bg_path.lower().endswith(ext) for ext in valid_extensions):
-                warn_msg = f"警告: 背景图片格式可能不受支持: {bg_path}"
-                callback('warning', 32, warn_msg)
-                print(warn_msg)
-            
-            # 加载背景图像
-            try:
-                # 先获取图片原始尺寸
-                bg_img_orig = Image.open(bg_path)
-                orig_width, orig_height = bg_img_orig.size
-                
-                # 检查尺寸是否匹配
-                if orig_width != width or orig_height != height:
-                    aspect_ratio_video = width / height
-                    aspect_ratio_bg = orig_width / orig_height
-                    
-                    # 检查纵横比差异
-                    ratio_diff = abs(aspect_ratio_video - aspect_ratio_bg) / aspect_ratio_video
-                    
-                    if ratio_diff > 0.1:  # 纵横比差异超过10%
-                        warn_msg = (f"警告: 背景图片({orig_width}x{orig_height})与视频({width}x{height})纵横比差异较大，"
-                                  f"可能导致拉伸变形")
-                        callback('warning', 35, warn_msg)
-                        print(warn_msg)
-                    else:
-                        info_msg = f"背景图片将从 {orig_width}x{orig_height} 调整为 {width}x{height}"
-                        callback('info', 35, info_msg)
-                        print(info_msg)
-                
-                # 调整大小并转换格式
-                background_img = bg_img_orig.convert("RGB")
-                background_img = background_img.resize((width, height))
-                background_array = np.array(background_img)
-                
-                # 创建背景视频 - 静态图像
-                background_clip = ImageClip(background_array, duration=duration)
-                callback('processing', 40, f"使用自定义背景: {bg_path}")
-            except Exception as e:
-                error_msg = f"加载背景图像失败: {e}"
-                callback('error', 40, error_msg)
-                print(error_msg)
-                print("将使用默认纯色背景")
-                
-                # 创建纯色背景
-                color_array = np.zeros((height, width, 3), dtype=np.uint8)
-                color_array[:, :, 0] = bg_color[0]  # R
-                color_array[:, :, 1] = bg_color[1]  # G
-                color_array[:, :, 2] = bg_color[2]  # B
-                background_clip = ImageClip(color_array, duration=duration)
-                callback('processing', 40, f"使用纯色背景: RGB{bg_color}")
-        else:
-            # 创建纯色背景
-            color_array = np.zeros((height, width, 3), dtype=np.uint8)
-            color_array[:, :, 0] = bg_color[0]  # R
-            color_array[:, :, 1] = bg_color[1]  # G
-            color_array[:, :, 2] = bg_color[2]  # B
-            background_clip = ImageClip(color_array, duration=duration)
-            callback('processing', 40, f"使用纯色背景: RGB{bg_color}")
-        
-        # 创建合成函数
-        callback('processing', 50, "创建合成视频...")
-        def blend_frame(get_frame, t):
-            # 获取原视频帧
-            original_frame = original_video.get_frame(t)
-            # 获取掩码帧并确保是单通道
-            mask_frame = mask_video.get_frame(t)
-            if len(mask_frame.shape) == 3 and mask_frame.shape[2] > 1:
-                mask_frame = mask_frame[:, :, 0]
-            # 将掩码归一化到0-1
-            mask_frame = mask_frame / 255.0
-            # 获取背景帧
-            bg_frame = background_clip.get_frame(t)
-            # 扩展掩码到3通道
-            mask_3ch = np.stack([mask_frame] * 3, axis=2)
-            # 合成
-            return original_frame * mask_3ch + bg_frame * (1 - mask_3ch)
-        
-        # 创建合成视频
-        callback('processing', 60, "生成合成视频...")
-        composite_clip = VideoClip(blend_frame, duration=duration)
-        
-        # 添加音频
-        if has_audio:
-            callback('processing', 70, "添加音频...")
-            composite_clip = composite_clip.set_audio(original_video.audio)
-        
-        # 写入视频
-        callback('finalizing', 80, "保存合成视频...")
-        composite_clip.write_videofile(output_path, fps=fps, codec='libx264', audio_codec='aac')
-        
-        # 清理资源
-        callback('finalizing', 90, "清理资源...")
-        if original_video: original_video.close()
-        if mask_video: mask_video.close()
-        if background_clip: background_clip.close()
-        if composite_clip: composite_clip.close()
-        
-        callback('complete', 100, "背景合成完成")
-        print(f"背景合成完成!")
-        print(f"输出文件: {output_path}")
-        return output_path
-        
-    except Exception as e:
-        error_msg = f"背景合成处理出错: {e}"
-        callback('error', 0, error_msg)
-        print(error_msg)
-        import traceback
-        traceback.print_exc()
-        
-        # 确保资源被清理
-        try:
-            if original_video: original_video.close()
-            if mask_video: mask_video.close()
-            if background_clip: background_clip.close()
-            if composite_clip: composite_clip.close()
-        except Exception as cleanup_error:
-            print(f"清理资源时出错: {cleanup_error}")
-        
-        return None
-
-def apply_custom_background_no_audio(
-    video_path,
-    mask_path,
-    output_path,
-    bg_path=None,
-    bg_color=(0, 255, 0),
+    mask_video_path,
+    background_path,
+    output_composite_path,
+    include_audio=True,
     callback=default_callback
 ):
     """
-    将视频前景与自定义背景合成（不包含音频），使用纯OpenCV实现
+    将视频前景与自定义背景合成，同时保留原始音频
     
     参数:
         video_path: 原始视频路径
-        mask_path: 预测的掩码视频路径
-        output_path: 输出合成视频路径
-        bg_path: 背景图像路径，如果为None则使用bg_color
-        bg_color: 背景颜色RGB值，默认为绿色(0,255,0)
+        mask_video_path: 掩码视频路径
+        background_path: 背景图片或视频路径
+        output_composite_path: 输出合成视频路径
+        include_audio: 是否包含原始视频的音频
         callback: 回调函数，用于报告进度
         
     返回:
-        str: 成功时返回输出视频路径，失败时返回None
+        str: 合成视频路径，失败时返回None
     """
-    try:
-        callback('init', 0, f"开始背景合成处理 (无音频模式)")
-        
+    try:        
         # 确保输出目录存在
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        os.makedirs(os.path.dirname(output_composite_path), exist_ok=True)
         
-        # 检查输入文件是否存在
-        if not os.path.exists(video_path):
-            error_msg = f"错误: 原始视频不存在: {video_path}"
-            callback('error', 0, error_msg)
-            print(error_msg)
-            return None
+        callback('processing', 5, "开始合成视频和背景")
+        
+        # 打开视频
+        video_clip = VideoFileClip(video_path)
+        mask_clip = VideoFileClip(mask_video_path)
+        
+        callback('processing', 15, "正在加载背景图片")
+        bg_image = Image.open(background_path)
+        
+        # 确保背景尺寸和视频一致
+        bg_image = bg_image.resize((video_clip.size[0], video_clip.size[1]), Image.LANCZOS)
+        
+        # 创建持续时间与视频相同的图像clip
+        bg_clip = ImageClip(np.array(bg_image)).set_duration(video_clip.duration)
+        
+        # 创建掩码函数，用于将mask_clip作为alpha通道应用到video_clip
+        callback('processing', 25, "正在合成前景和背景")
+        
+        def make_frame(t):
+            fg_frame = video_clip.get_frame(t)
+            bg_frame = bg_clip.get_frame(t)
+            mask_frame = mask_clip.get_frame(t)
             
-        if not os.path.exists(mask_path):
-            error_msg = f"错误: 掩码视频不存在: {mask_path}"
-            callback('error', 0, error_msg)
-            print(error_msg)
-            return None
+            # 确保掩码为灰度图
+            if len(mask_frame.shape) == 3 and mask_frame.shape[2] > 1:
+                mask_gray = np.mean(mask_frame, axis=2) / 255.0
+            else:
+                mask_gray = mask_frame / 255.0
+                
+            # 扩展维度以匹配RGB通道
+            mask_3d = np.stack([mask_gray] * 3, axis=-1)
+            
+            # 使用掩码混合前景和背景
+            composite = fg_frame * mask_3d + bg_frame * (1 - mask_3d)
+            return composite
         
-        # 打开原始视频和掩码视频
-        callback('loading', 10, "加载视频...")
-        original_cap = cv2.VideoCapture(video_path)
-        mask_cap = cv2.VideoCapture(mask_path)
+        # 创建合成视频
+        composite_clip = VideoClip(make_frame, duration=video_clip.duration)
         
-        # 视频基本信息
-        fps = original_cap.get(cv2.CAP_PROP_FPS)
-        total_frames = min(
-            int(original_cap.get(cv2.CAP_PROP_FRAME_COUNT)), 
-            int(mask_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        # 添加原始音频（如果需要）
+        if include_audio and video_clip.audio is not None:
+            callback('processing', 75, "正在添加音频")
+            composite_clip = composite_clip.set_audio(video_clip.audio)
+        
+        # 写入输出文件
+        callback('processing', 80, "正在保存合成视频")
+        composite_clip.write_videofile(
+            output_composite_path,
+            codec='libx264',
+            audio_codec='aac' if include_audio and video_clip.audio is not None else None,
+            fps=video_clip.fps,
+            progress_bar=False
         )
         
-        # 获取视频尺寸
-        ret, first_frame = original_cap.read()
-        if not ret:
-            callback('error', 0, "无法读取原始视频")
-            print("无法读取原始视频")
-            return None
-            
-        original_h, original_w = first_frame.shape[:2]
-        original_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # 重置到开始
+        # 清理资源
+        video_clip.close()
+        mask_clip.close()
+        bg_clip.close()
+        composite_clip.close()
         
-        # 检查掩码视频尺寸
-        ret, first_mask = mask_cap.read()
-        if not ret:
-            callback('error', 0, "无法读取掩码视频")
-            print("无法读取掩码视频")
-            return None
-            
-        mask_h, mask_w = first_mask.shape[:2]
-        mask_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # 重置到开始
-        
-        # 检查尺寸是否匹配
-        if original_w != mask_w or original_h != mask_h:
-            warn_msg = f"警告: 原始视频({original_w}x{original_h})和掩码视频({mask_w}x{mask_h})尺寸不匹配"
-            callback('warning', 15, warn_msg)
-            print(warn_msg)
-        
-        # 处理背景
-        callback('processing', 30, "准备背景...")
-        
-        # 如果提供了背景图片，尝试加载
-        background = None
-        if bg_path and os.path.exists(bg_path):
-            try:
-                bg_img = cv2.imread(bg_path)
-                if bg_img is not None:
-                    # 调整背景大小以匹配视频
-                    background = cv2.resize(bg_img, (original_w, original_h))
-                    print(f"使用自定义背景: {bg_path}")
-                else:
-                    print(f"无法加载背景图片: {bg_path}，将使用纯色背景")
-            except Exception as e:
-                print(f"加载背景图片错误: {e}，将使用纯色背景")
-        
-        # 如果没有背景图片或加载失败，创建纯色背景
-        if background is None:
-            background = np.zeros((original_h, original_w, 3), dtype=np.uint8)
-            background[:, :] = bg_color[::-1]  # OpenCV使用BGR格式
-            print(f"使用纯色背景: BGR{bg_color[::-1]}")
-        
-        # 创建输出视频写入器
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        output_writer = cv2.VideoWriter(output_path, fourcc, fps, (original_w, original_h), True)
-        
-        # 处理视频帧
-        callback('processing', 40, "开始合成视频...")
-        frame_count = 0
-        
-        while frame_count < total_frames:
-            # 计算并报告进度
-            progress = 40 + (frame_count / total_frames) * 50
-            if frame_count % 10 == 0:
-                callback('progress', progress, f"合成帧 {frame_count}/{total_frames}")
-            
-            # 读取原始帧和掩码帧
-            ret1, original_frame = original_cap.read()
-            ret2, mask_frame = mask_cap.read()
-            
-            if not ret1 or not ret2:
-                break
-            
-            # 将掩码帧转为灰度图，如果它不是灰度图
-            if len(mask_frame.shape) == 3 and mask_frame.shape[2] > 1:
-                mask_gray = cv2.cvtColor(mask_frame, cv2.COLOR_BGR2GRAY)
-            else:
-                mask_gray = mask_frame
-            
-            # 如果尺寸不一致，调整掩码尺寸
-            if mask_gray.shape[:2] != original_frame.shape[:2]:
-                mask_gray = cv2.resize(mask_gray, (original_w, original_h))
-            
-            # 创建前景掩码和背景掩码
-            # 将掩码转换为三通道，以便应用
-            mask_3ch = cv2.merge([mask_gray, mask_gray, mask_gray])
-            mask_3ch = mask_3ch / 255.0  # 归一化到0-1
-
-            # 创建背景掩码 (反转)
-            bg_mask_3ch = 1.0 - mask_3ch
-            
-            # 合成
-            foreground = cv2.multiply(original_frame.astype(float), mask_3ch)
-            bg = cv2.multiply(background.astype(float), bg_mask_3ch)
-            
-            # 组合前景和背景
-            composite = cv2.add(foreground, bg).astype(np.uint8)
-            
-            # 写入输出视频
-            output_writer.write(composite)
-            
-            frame_count += 1
-        
-        # 释放资源
-        original_cap.release()
-        mask_cap.release()
-        output_writer.release()
-        
-        callback('complete', 100, "背景合成完成 (无音频)")
-        print(f"背景合成完成!")
-        print(f"输出文件: {output_path}")
-        return output_path
-        
+        callback('complete', 100, "合成视频处理完成")
+        print(f"合成视频处理完成: {output_composite_path}")
+    
     except Exception as e:
-        error_msg = f"无音频背景合成处理出错: {e}"
+        error_msg = f"合成视频处理出错: {e}"
         callback('error', 0, error_msg)
         print(error_msg)
         import traceback
         traceback.print_exc()
         
-        # 尝试释放资源
+        # 尝试清理可能打开的资源
         try:
-            if 'original_cap' in locals() and original_cap is not None:
-                original_cap.release()
-            if 'mask_cap' in locals() and mask_cap is not None:
-                mask_cap.release()
-            if 'output_writer' in locals() and output_writer is not None:
-                output_writer.release()
-        except Exception as cleanup_error:
-            print(f"清理资源时出错: {cleanup_error}")
-        
-        return None
+            if 'video_clip' in locals() and video_clip:
+                video_clip.close()
+            if 'mask_clip' in locals() and mask_clip:
+                mask_clip.close()
+            if 'bg_clip' in locals() and bg_clip:
+                bg_clip.close()
+            if 'composite_clip' in locals() and composite_clip:
+                composite_clip.close()
+        except:
+            pass
 
 # 修改原有process_video函数为调用新拆分的函数
 def extract_video(
     video_path,
     model_path,
-    output_dir="./output",
+    foreground_video_path,
+    output_mask_path,
     method="birefnet",
     image_size=(512, 512),
     batch_size=4,
-    bg_path=None,
     bg_color=(0, 255, 0),
     callback=default_callback
 ):
@@ -1304,63 +913,22 @@ def extract_video(
     参数:
         video_path: 输入视频路径
         model_path: 模型路径，支持.pth和.safetensors格式
-        output_dir: 输出目录，默认为./output
+        foreground_video_path: 指定的前景视频输出路径
+        output_mask_path: 指定的掩码视频输出路径
         method: 模型类型，支持'birefnet'或'ben2'
         image_size: 模型输入尺寸，格式为(width, height)
         batch_size: 批处理大小
-        bg_path: 背景图片路径，如果为None则使用bg_color
         bg_color: 背景颜色RGB值，默认为绿色(0,255,0)
         callback: 回调函数，用于报告进度
         
     返回:
-        tuple: (掩码视频路径, 合成视频路径)，处理失败时返回(None, None)
+        tuple: (掩码视频路径, None)，处理失败时返回(None, None)
     """
-    try:
-        # 参数验证
-        if not os.path.exists(video_path):
-            error_msg = f"错误: 输入视频不存在: {video_path}"
-            callback('error', 0, error_msg)
-            print(error_msg)
-            return None, None
-            
-        if not os.path.exists(model_path):
-            error_msg = f"错误: 模型文件不存在: {model_path}"
-            callback('error', 0, error_msg)
-            print(error_msg)
-            return None, None
-            
-        if method.lower() not in ["birefnet", "ben2"]:
-            error_msg = f"错误: 不支持的方法: {method}"
-            callback('error', 0, error_msg)
-            print(error_msg)
-            return None, None
-            
-        # 确保输出目录存在
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # 设置文件名
-        video_name = os.path.splitext(os.path.basename(video_path))[0]
-        model_name = os.path.splitext(os.path.basename(model_path))[0]
-            
-        # 处理背景名称
-        bg_name = "default"
-        if bg_path:
-            if os.path.exists(bg_path):
-                bg_name = os.path.splitext(os.path.basename(bg_path))[0]
-            else:
-                print(f"警告: 背景图片不存在: {bg_path}，将使用默认背景")
-                bg_path = None
-                
-        output_mask_path = os.path.join(
-            output_dir, 
-            f"mask-{video_name}-{bg_name}-{model_name}-{image_size[0]}x{image_size[1]}.mp4"
-        )
-        output_composite_path = os.path.join(
-            output_dir, 
-            f"composite-{video_name}-{bg_name}-{model_name}-{image_size[0]}x{image_size[1]}.mp4"
-        )
+    try:        
+        os.makedirs(os.path.dirname(output_mask_path), exist_ok=True)
         
         # 根据方法选择处理函数
+        callback('processing', 10, f"使用{method.upper()}模型处理视频")
         if method.lower() == "ben2":
             if not HAS_BEN2:
                 error_msg = "错误: 未安装BEN2模型，无法使用此方法"
@@ -1368,20 +936,23 @@ def extract_video(
                 print(error_msg)
                 return None, None
                 
-            mask_path, composite_path = predict_video_mask_ben2(
+            # 禁用合成视频输出，只生成掩码
+            predict_video_mask_ben2(
                 video_path=video_path,
                 output_mask_path=output_mask_path,
-                output_composite_path=output_composite_path,
+                output_composite_path=foreground_video_path,
                 model_path=model_path,
                 batch_size=batch_size,
                 bg_color=bg_color,
                 callback=callback
             )
+            
         elif method.lower() == "birefnet":
-            mask_path, composite_path = predict_video_mask_birefnet(
+            # 禁用合成视频输出，只生成掩码
+            predict_video_mask_birefnet(
                 video_path=video_path,
                 output_mask_path=output_mask_path,
-                output_composite_path=output_composite_path,
+                output_composite_path=foreground_video_path,
                 model_path=model_path,
                 image_size=image_size, 
                 batch_size=batch_size, 
@@ -1389,53 +960,14 @@ def extract_video(
                 callback=callback
             )
         
-        # 应用自定义背景（如果指定）
-        if bg_path and os.path.exists(bg_path) and mask_path and os.path.exists(mask_path):
-            callback('processing', 85, f"应用自定义背景: {bg_path}")
-            print(f"应用自定义背景: {bg_path}")
-            
-            # 生成自定义背景输出路径
-            custom_bg_output_path = os.path.join(
-                output_dir, 
-                f"{prefix}custom_bg-{video_name}-{bg_name}-{model_name}-{image_size[0]}x{image_size[1]}{timestamp}.mp4"
-            )
-            
-            # 应用自定义背景
-            custom_bg_path = apply_custom_background(
-                video_path=video_path,
-                mask_path=mask_path,
-                output_path=custom_bg_output_path,
-                bg_path=bg_path,
-                bg_color=bg_color,
-                callback=callback
-            )
-            
-            if custom_bg_path:
-                # 更新合成视频路径为自定义背景版本
-                composite_path = custom_bg_path
-                
-        # 检查输出文件是否都存在
-        if mask_path and composite_path and os.path.exists(mask_path) and os.path.exists(composite_path):
-            callback('complete', 100, "视频处理完成")
-            print(f"视频处理完成")
-            print(f"输出文件:")
-            print(f"1. 掩码视频: {mask_path}")
-            print(f"2. 合成视频: {composite_path}")
-            return mask_path, composite_path
+        # 检查输出文件是否存在
+        if os.path.exists(mask_path) and os.path.exists(foreground_video_path):
+            callback('complete', 100, "掩码视频生成完成")
+            print(f"掩码视频生成完成: {mask_path}, 前景视频生成完成: {foreground_video_path}")
         else:
-            missing_files = []
-            if not mask_path or not os.path.exists(mask_path):
-                missing_files.append(output_mask_path)
-            if not composite_path or not os.path.exists(composite_path):
-                missing_files.append(output_composite_path)
-                
-            warn_msg = f"警告: 以下输出文件未生成: {missing_files}"
+            warn_msg = f"警告: 掩码视频or前景视频未生成: {output_mask_path} or {foreground_video_path}"
             callback('warning', 95, warn_msg)
             print(warn_msg)
-            
-            # 返回存在的文件
-            return (mask_path if mask_path and os.path.exists(mask_path) else None,
-                    composite_path if composite_path and os.path.exists(composite_path) else None)
     
     except Exception as e:
         error_msg = f"视频处理出错: {e}"
@@ -1443,124 +975,3 @@ def extract_video(
         print(error_msg)
         import traceback
         traceback.print_exc()
-        return None, None
-
-if __name__ == "__main__":
-    # 解析命令行参数
-    parser = argparse.ArgumentParser(description='BiRefNet/BEN2视频抠图处理')
-    parser.add_argument('--video', type=str, required=True, 
-                        help='输入视频路径')
-    parser.add_argument('--model', type=str, required=True, 
-                        help='模型路径，支持.pth和.safetensors格式，自动识别lite和完整版')
-    parser.add_argument('--output', type=str, default="", 
-                        help='输出目录')
-    parser.add_argument('--size', type=str, default="", 
-                        help='处理分辨率，格式为width,height')
-    parser.add_argument('--batch', type=int, default=0, 
-                        help='批处理大小，0表示自动根据GPU内存决定')
-    # 背景参数
-    parser.add_argument('--bg', type=str, default=None,
-                        help='背景图片路径，如果指定将使用该图片作为背景')
-    parser.add_argument('--bg-color', type=str, default="0,255,0",
-                        help='背景RGB颜色值，格式为r,g,b，例如 0,255,0 表示绿色')
-    # 回调函数类型
-    parser.add_argument('--callback-type', type=str, default="default", choices=['default', 'simple', 'verbose'],
-                        help='回调函数类型: default, simple, verbose')
-    args = parser.parse_args()
-    
-    # 根据参数选择回调函数
-    if args.callback_type == 'simple':
-        callback = simple_callback
-    elif args.callback_type == 'verbose':
-        callback = verbose_callback
-    else:
-        callback = default_callback
-    
-    # 提示必要的库
-    if not HAS_SAFETENSORS and args.model.endswith('.safetensors'):
-        print("警告: 您正在尝试加载.safetensors格式的模型，但未安装safetensors库")
-        print("请运行: pip install safetensors")
-        print("然后重新运行此脚本")
-        sys.exit(1)
-        
-    if not HAS_MOVIEPY:
-        print("警告: 未安装moviepy库，处理后的视频将没有声音")
-        print("要保留原始视频的音频，请运行: pip install moviepy")
-        print("然后重新运行此脚本")
-        print("继续处理，但输出视频将没有声音...")
-    else:
-        print("已检测到moviepy库，将保留原始视频的音频轨道")
-    
-    
-    # 解析背景颜色
-    bg_color = (0, 255, 0)  # 默认绿色
-    try:
-        bg_color = tuple(map(int, args.bg_color.split(',')))
-        if len(bg_color) != 3:
-            print(f"警告: 背景颜色格式错误，应为'r,g,b'，使用默认绿色(0,255,0)")
-            bg_color = (0, 255, 0)
-    except:
-        print(f"警告: 无法解析背景颜色'{args.bg_color}'，使用默认绿色(0,255,0)")
-        bg_color = (0, 255, 0)
-    
-    # 解析处理分辨率
-    try:
-        width, height = map(int, args.size.split(','))
-        image_size = (width, height)
-        print(f"设置处理分辨率: {image_size}")
-    except:
-        image_size = model_config[args.model]["image_size"]
-        print(f"使用默认处理分辨率: {image_size}")
-    
-    # 输出目录
-    output_dir = args.output if args.output else os.path.dirname(args.video)
-    
-    # 设置批处理大小 - 根据GPU内存大小调整
-    batch_size = args.batch
-    if batch_size <= 0 and torch.cuda.is_available():
-        # 自动计算合适的批处理大小
-        gpu_mem = torch.cuda.get_device_properties(0).total_memory / 1e9
-        if gpu_mem > 20:  # 高端GPU (4090, A100等)
-            batch_size = 4  # 2K分辨率下减小批大小
-        elif gpu_mem > 10:  # 中端GPU (3080, 2080等)
-            batch_size = 2
-        else:  # 入门级GPU
-            batch_size = 1
-        print(f"根据GPU内存({gpu_mem:.1f}GB)自动设置批处理大小: {batch_size}")
-    else:
-        if batch_size <= 0:
-            batch_size = 1
-        print(f"使用指定的批处理大小: {batch_size}")
-    
-    # 调用统一入口函数进行处理
-    mask_path, composite_path = extract_video(
-        video_path=args.video,
-        model_path=model_config[args.model]["model_path"],
-        output_dir=output_dir,
-        method=model_config[args.model]["method"],
-        image_size=image_size,
-        batch_size=batch_size,
-        bg_path=args.bg,
-        bg_color=bg_color,
-        callback=callback
-    )
-    
-    if mask_path and composite_path:
-        print("处理完成!")
-        print(f"输出文件:")
-        print(f"1. 掩码视频: {mask_path}")
-        print(f"2. 合成视频: {composite_path}")
-    else:
-        print("处理失败")
-        sys.exit(1)
-
-'''
-python test_gpu.py --model "/root/gpufree-data/BiRefNet-DIS-epoch_590.pth" --video "/root/gpufree-data/111.mp4" --size "1024,1024" --batch 8
-
-python test_gpu_all.py --method ben2 --model "/root/gpufree-data/models/BiRefNet.safetensors" --video "/root/gpufree-data/samplevideo/111.mp4" --size "1024,1024" --batch 8 --output "/root/gpufree-data/output/"
-
-python video_extractor.py --model "BiRefNet" --video "/root/gpufree-data/samplevideo/111.mp4" --size "1024,1024" --batch 8 --output "/root/gpufree-data/output/"
-python video_extractor.py --model "BEN2_Base" --video "/root/gpufree-data/samplevideo/111.mp4" --size "1024,1024" --batch 8 --output "/root/gpufree-data/output/"
-
-python video_extractor.py --model "BiRefNet_lite-general-2K" --video "/root/gpufree-data/samplevideo/111.mp4" --size "1024,1024" --batch 8 --output "/root/gpufree-data/output/"
-''' 
