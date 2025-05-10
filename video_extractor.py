@@ -298,7 +298,7 @@ def load_birefnet_model(model_path, device):
         if not HAS_SAFETENSORS:
             raise ImportError("需要安装safetensors库以加载.safetensors格式模型: pip install safetensors")
             
-        print("使用safetensors加载模型文件...")
+        print(f"使用safetensors加载模型文件: {model_path}")
         with safe_open(model_path, framework="pt", device="cpu") as f:
             temp_state_dict = {key: f.get_tensor(key) for key in f.keys()}
     else:
@@ -525,7 +525,6 @@ def predict_video_mask_birefnet(
     
     try:
         # 使用智能加载函数加载模型
-        callback('loading', 10, "加载模型...")
         birefnet = load_birefnet_model(model_path, device)
         
         # 使用半精度加速
@@ -536,7 +535,6 @@ def predict_video_mask_birefnet(
             print(f"模型已转换为半精度: {next(birefnet.parameters()).dtype}")
         
         # 打开视频
-        callback('loading', 20, "读取视频信息...")
         cap = cv2.VideoCapture(video_path)
         fps = cap.get(cv2.CAP_PROP_FPS)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -561,8 +559,6 @@ def predict_video_mask_birefnet(
         
         # 开始计时
         start_time = time()
-        
-        callback('processing', 30, "开始处理视频帧...")
         # 处理视频帧
         with torch.no_grad():
             for frame_idx in tqdm(range(0, total_frames, batch_size)):
@@ -817,8 +813,6 @@ def apply_custom_background(
         # 打开视频
         video_clip = VideoFileClip(video_path)
         mask_clip = VideoFileClip(mask_video_path)
-        
-        callback('processing', 15, "正在加载背景图片")
         bg_image = Image.open(background_path)
         
         # 确保背景尺寸和视频一致
@@ -826,9 +820,6 @@ def apply_custom_background(
         
         # 创建持续时间与视频相同的图像clip
         bg_clip = ImageClip(np.array(bg_image)).set_duration(video_clip.duration)
-        
-        # 创建掩码函数，用于将mask_clip作为alpha通道应用到video_clip
-        callback('processing', 25, "正在合成前景和背景")
         
         def make_frame(t):
             fg_frame = video_clip.get_frame(t)
@@ -862,8 +853,7 @@ def apply_custom_background(
             output_composite_path,
             codec='libx264',
             audio_codec='aac' if include_audio and video_clip.audio is not None else None,
-            fps=video_clip.fps,
-            progress_bar=False
+            fps=video_clip.fps
         )
         
         # 清理资源
@@ -928,7 +918,6 @@ def extract_video(
         os.makedirs(os.path.dirname(output_mask_path), exist_ok=True)
         
         # 根据方法选择处理函数
-        callback('processing', 10, f"使用{method.upper()}模型处理视频")
         if method.lower() == "ben2":
             if not HAS_BEN2:
                 error_msg = "错误: 未安装BEN2模型，无法使用此方法"

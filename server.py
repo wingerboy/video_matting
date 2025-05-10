@@ -27,12 +27,19 @@ app = FastAPI(title="AI视频处理服务")
 tasks_status = {}
 
 # Java回调地址 (可配置)
-JAVA_CALLBACK_URL="http://localhost:6000/api/task/update"
-BG_SAVE_PATH="/root/gpufree-data/videos/background"
-ORIGIN_VIDEO_PATH="/root/gpufree-data/videos/originvideo"
-FORE_VIDEO_PATH="/root/gpufree-data/videos/forevideo"
-MASK_VIDEO_PATH="/root/gpufree-data/videos/maskvideo"
-OUTPUT_PATH="/root/gpufree-data/videos/output"
+BACKEND_CALLBACK_URL="http://localhost:6000/api/task/callback"
+# 心跳相关配置
+HEARTBEAT_URL = "http://localhost:6000/api/task/interface/heartbeat"  # 后端心跳接口地址，按需修改
+HEARTBEAT_IDENTIFICATION = "wingerboy"  # 身份标识，按需修改
+HEARTBEAT_INTERVAL = 60  # 心跳间隔秒
+# 当前服务对外地址，按需修改
+CURRENT_WORKER_URL = "https://to74zigu-nx6sqm6b-6001.zjrestapi.gpufree.cn:8443"
+
+BG_SAVE_PATH="/root/gpufree-share/videos/background"
+ORIGIN_VIDEO_PATH="/root/gpufree-share/videos/originvideo"
+FORE_VIDEO_PATH="/root/gpufree-share/videos/forevideo"
+MASK_VIDEO_PATH="/root/gpufree-share/videos/maskvideo"
+OUTPUT_PATH="/root/gpufree-share/videos/output"
 
 model_config = {
     # 耗时 半小时左右
@@ -127,11 +134,14 @@ model_config = {
 
 # 定义请求模型
 class VideoSegmentTaskRequest(BaseModel):
-    task_id: str
-    origin_video_path: str
-    mask_video_path: str
-    bg_path: str
-    model_name: str
+    taskId: str
+    videoPath: str
+    foregroundPath: Optional[str] = None
+    backgroundPath: Optional[str] = None
+    modelName: str
+    modelAlias: Optional[str] = None
+    callbackUrl: Optional[str] = None
+    workerUrl: Optional[str] = None
 
 # 视频分割任务状态枚举
 class TaskStatus:
@@ -153,7 +163,9 @@ def update_task_status(task_id: str, status: str, progress: float = 0, message: 
     # 向Java后端报告进度
     try:
         payload = {
+            "Identification": "wingerboy",
             "taskId": task_id,
+            "workerUrl": CURRENT_WORKER_URL,
             "status": status,
             "progress": progress,
             "message": message
@@ -162,9 +174,9 @@ def update_task_status(task_id: str, status: str, progress: float = 0, message: 
         logger.info(f"向Java后端报告进度: {json.dumps(payload)}")
         
         # 实际环境中取消注释下面的代码
-        # response = requests.post(JAVA_CALLBACK_URL, json=payload)
+        # response = requests.post(BACKEND_CALLBACK_URL, json=payload)
         # if response.status_code != 200:
-        #     logger.error(f"向Java后端报告进度失败: {response.text}")
+        #     logger.error(f"向后端报告进度失败: {response.text}")
     except Exception as e:
         logger.error(f"向Java后端报告进度出错: {str(e)}")
 
@@ -273,6 +285,7 @@ def process_video_segment(task_id, task_params):
                 logger.info(f"开始提取视频: {origin_video_path}")
                 model_path = model_config[model_name]["model_path"]
                 method = model_config[model_name].get("method", "birefnet")
+                batch_size = model_config[model_name].get("max_batch_size", 4)
                 logger.info(f"使用模型 {model_name}, 方法 {method}")
                 
                 # 提取视频，生成掩码
@@ -283,7 +296,7 @@ def process_video_segment(task_id, task_params):
                     output_mask_path=mask_video_path,
                     method=method,
                     image_size=image_size,
-                    batch_size=4,
+                    batch_size=batch_size,
                     callback=progress_callback
                 )
                 
@@ -352,36 +365,36 @@ async def video_segment_task_executor(
     background_tasks: BackgroundTasks
 ):
     """启动视频分割任务"""
-    task_id = request.task_id
+    task_id = request.taskId
     
     # 如果没有提供task_id，生成一个
     if not task_id:
-        logger.error(f"请求中无task_id")
+        logger.error(f"请求中无taskId")
         return {
             "taskId": "error",
             "status": "fail",
-            "message": "错误: 请求中无task_id"
+            "message": "错误: 请求中无taskId"
         }
     
     try:
         # 记录开始处理的任务
         logger.info(f"接收到视频分割任务请求: {task_id}")
-        logger.info(f"请求参数: 视频={request.origin_video_path}, 模型={request.model_name}, 背景={request.bg_path}")
+        logger.info(f"请求参数: 视频={request.videoPath}, 模型={request.modelName}, 背景={request.backgroundPath}")
         
         # 检查请求参数
         # 检查图片格式
         valid_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff']
-        if not any(request.bg_path.lower().endswith(ext) for ext in valid_extensions):
-            logger.error(f"警告: 背景图片格式可能不受支持: {request.bg_path}")
+        if not request.backgroundPath or not any(request.backgroundPath.lower().endswith(ext) for ext in valid_extensions):
+            logger.error(f"警告: 背景图片格式可能不受支持或未提供: {request.backgroundPath}")
             return {
                 "taskId": task_id,
                 "status": "fail",
-                "message": "错误: 背景图片格式可能不受支持"
+                "message": "错误: 背景图片格式可能不受支持或未提供"
             }
         
         # 参数验证
-        if not os.path.exists(request.origin_video_path):
-            error_msg = f"错误: 输入视频不存在: {request.origin_video_path}"
+        if not os.path.exists(request.videoPath):
+            error_msg = f"错误: 输入视频不存在: {request.videoPath}"
             logger.error(error_msg)
             return {
                 "taskId": task_id,
@@ -390,22 +403,23 @@ async def video_segment_task_executor(
             }
             
         # 检查模型是否存在
-        if request.model_name not in model_config:
-            error_msg = f"错误: 未知的模型名称: {request.model_name}"
+        if request.modelName not in model_config:
+            error_msg = f"错误: 未知的模型名称: {request.modelName}"
             logger.error(error_msg)
             return {
                 "taskId": task_id,
                 "status": "fail",
                 "message": error_msg
             }
+
             
         # 确保mask_video_path有值
-        mask_video_path = request.mask_video_path
+        mask_video_path = request.foregroundPath
         if not mask_video_path:
             # 构建默认路径
-            video_name = os.path.splitext(os.path.basename(request.origin_video_path))[0]
-            bg_name = os.path.splitext(os.path.basename(request.bg_path))[0]
-            model_name = request.model_name
+            video_name = os.path.splitext(os.path.basename(request.videoPath))[0]
+            bg_name = os.path.splitext(os.path.basename(request.backgroundPath))[0]
+            model_name = request.modelName
             image_size = model_config[model_name].get("image_size", (1024, 1024))
             
             mask_video_path = os.path.join(
@@ -418,13 +432,19 @@ async def video_segment_task_executor(
         os.makedirs(os.path.dirname(mask_video_path), exist_ok=True)
         os.makedirs(OUTPUT_PATH, exist_ok=True)
         
+        # 如果提供了回调URL，更新全局回调URL
+        if request.callbackUrl:
+            global BACKEND_CALLBACK_URL
+            BACKEND_CALLBACK_URL = request.callbackUrl
+            logger.info(f"更新回调URL: {BACKEND_CALLBACK_URL}")
+        
         # 准备任务参数
         task_params = {
             "task_id": task_id,
-            "origin_video_path": request.origin_video_path,
+            "origin_video_path": request.videoPath,
             "mask_video_path": mask_video_path,
-            "bg_path": request.bg_path,
-            "model_name": request.model_name
+            "bg_path": request.backgroundPath,
+            "model_name": request.modelName
         }
         
         # 更新任务状态为等待中
@@ -462,6 +482,25 @@ async def get_task_status(task_id: str):
 async def health_check():
     """健康检查接口"""
     return {"status": "ok", "service": "AI视频处理服务"}
+
+def heartbeat_loop():
+    while True:
+        try:
+            payload = {
+                "interfaceAddress": CURRENT_WORKER_URL,
+                "Identification": HEARTBEAT_IDENTIFICATION
+            }
+            resp = requests.post(HEARTBEAT_URL, json=payload, timeout=10)
+            if resp.status_code == 200:
+                logger.info("心跳成功")
+            else:
+                logger.warning(f"心跳失败: {resp.status_code} {resp.text}")
+        except Exception as e:
+            logger.warning(f"心跳异常: {e}")
+        time.sleep(HEARTBEAT_INTERVAL)
+
+# 启动心跳线程
+threading.Thread(target=heartbeat_loop, daemon=True).start()
 
 if __name__ == "__main__":
     # 服务器配置
