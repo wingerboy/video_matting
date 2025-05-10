@@ -27,13 +27,13 @@ app = FastAPI(title="AI视频处理服务")
 tasks_status = {}
 
 # Java回调地址 (可配置)
-BACKEND_CALLBACK_URL="http://localhost:6000/api/task/callback"
+BACKEND_CALLBACK_URL="http://localhost:6001/api/task/callback"
 # 心跳相关配置
-HEARTBEAT_URL = "http://localhost:6000/api/task/interface/heartbeat"  # 后端心跳接口地址，按需修改
-HEARTBEAT_IDENTIFICATION = "wingerboy"  # 身份标识，按需修改
+HEARTBEAT_URL = "http://localhost:6001/api/task/interface/heartbeat"  # 后端心跳接口地址，按需修改
+BACKEND_IDENTIFICATION = "wingerboy"  # 身份标识，按需修改
 HEARTBEAT_INTERVAL = 60  # 心跳间隔秒
-# 当前服务对外地址，按需修改
-CURRENT_WORKER_URL = "https://to74zigu-nx6sqm6b-6001.zjrestapi.gpufree.cn:8443"
+# 当前AI server服务对外地址，按需修改
+CURRENT_WORKER_URL = "https://to74zigu-nx6sqm6b-6002.zjrestapi.gpufree.cn:8443"
 
 BG_SAVE_PATH="/root/gpufree-share/videos/background"
 ORIGIN_VIDEO_PATH="/root/gpufree-share/videos/originvideo"
@@ -163,7 +163,7 @@ def update_task_status(task_id: str, status: str, progress: float = 0, message: 
     # 向Java后端报告进度
     try:
         payload = {
-            "Identification": "wingerboy",
+            "Identification": BACKEND_IDENTIFICATION,
             "taskId": task_id,
             "workerUrl": CURRENT_WORKER_URL,
             "status": status,
@@ -488,7 +488,7 @@ def heartbeat_loop():
         try:
             payload = {
                 "interfaceAddress": CURRENT_WORKER_URL,
-                "Identification": HEARTBEAT_IDENTIFICATION
+                "Identification": BACKEND_IDENTIFICATION
             }
             resp = requests.post(HEARTBEAT_URL, json=payload, timeout=10)
             if resp.status_code == 200:
@@ -507,8 +507,8 @@ if __name__ == "__main__":
     if not HAS_MOVIEPY:
         logger.warning("警告: 未安装moviepy库，输出视频将没有音频")
         
-    host = os.environ.get("HOST", "0.0.0.0")
-    port = int(os.environ.get("PORT", "6001"))
+    host = os.environ.get("AI_SERVER_HOST", "0.0.0.0")
+    port = int(os.environ.get("AI_SERVER_PORT", "6002"))
     
     # 启动服务器
     uvicorn.run(app, host=host, port=port)
