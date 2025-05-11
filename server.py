@@ -46,7 +46,8 @@ tasks_status = {}
 # Java回调地址 (可配置)
 BACKEND_CALLBACK_URL="https://to74zigu-nx6sqm6b-6001.zjrestapi.gpufree.cn:8443/api/task/callback"
 # 心跳相关配置
-HEARTBEAT_URL = "https://to74zigu-nx6sqm6b-6001.zjrestapi.gpufree.cn:8443/api/task/interface/heartbeat"  # 后端心跳接口地址，按需修改
+ENABLE_HEARTBEAT = True  # 是否启用心跳
+HEARTBEAT_URL = "https://to74zigu-nx6sqm6b-6001.zjrestapi.gpufree.cn:8443/api/tasks/interface/heartbeat"  # 后端心跳接口地址
 BACKEND_IDENTIFICATION = "wingerboy"  # 身份标识，按需修改
 HEARTBEAT_INTERVAL = 60  # 心跳间隔秒
 # 当前AI server服务对外地址，按需修改
@@ -554,19 +555,34 @@ async def health_check():
     return {"status": "ok", "service": "AI视频处理服务"}
 
 def heartbeat_loop():
+    """心跳线程，定期向后端发送心跳包"""
+    if not ENABLE_HEARTBEAT:
+        log_with_task_id("heartbeat", "心跳功能已禁用")
+        return
+        
+    log_with_task_id("heartbeat", f"心跳服务启动 - URL: {HEARTBEAT_URL}")
+    
     while True:
         try:
+            # 按照测试案例格式构建payload
             payload = {
                 "interfaceAddress": CURRENT_WORKER_URL,
                 "Identification": BACKEND_IDENTIFICATION
             }
+            log_with_task_id("heartbeat", f"发送心跳: {payload}")
+            
+            # 发送请求
             resp = requests.post(HEARTBEAT_URL, json=payload, timeout=10)
+            
+            # 处理响应
             if resp.status_code == 200:
-                log_with_task_id("heartbeat", "心跳成功")
+                log_with_task_id("heartbeat", f"心跳成功: {resp.text}")
             else:
                 log_with_task_id("heartbeat", f"心跳失败: {resp.status_code} {resp.text}", 'warning')
         except Exception as e:
             log_with_task_id("heartbeat", f"心跳异常: {e}", 'warning')
+        
+        # 等待下一次心跳
         time.sleep(HEARTBEAT_INTERVAL)
 
 # 启动心跳线程
