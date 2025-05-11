@@ -6,6 +6,8 @@ import logging
 import threading
 import requests
 import torch
+import re
+from urllib.parse import urlparse
 from typing import Dict, List, Optional
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel
@@ -43,15 +45,84 @@ app = FastAPI(title="AI视频处理服务")
 # 存储任务状态的字典
 tasks_status = {}
 
-# Java回调地址 (可配置)
-BACKEND_CALLBACK_URL="https://to74zigu-nx6sqm6b-6001.zjrestapi.gpufree.cn:8443/api/task/callback"
-# 心跳相关配置
-ENABLE_HEARTBEAT = True  # 是否启用心跳
-HEARTBEAT_URL = "https://to74zigu-nx6sqm6b-6001.zjrestapi.gpufree.cn:8443/api/tasks/interface/heartbeat"  # 后端心跳接口地址
-BACKEND_IDENTIFICATION = "wingerboy"  # 身份标识，按需修改
-HEARTBEAT_INTERVAL = 60  # 心跳间隔秒
+# 后端回调地址 (可配置)
+BACKEND_URL="https://to74zigu-nx6sqm6b-6001.zjrestapi.gpufree.cn:8443"
 # 当前AI server服务对外地址，按需修改
 CURRENT_WORKER_URL = "https://to74zigu-nx6sqm6b-6002.zjrestapi.gpufree.cn:8443"
+
+# 判断两个URL是否属于同一台机器
+def is_same_host(url1, url2):
+    """
+    判断两个URL是否属于同一台机器
+    支持以下格式:
+    1. 常规IP: 1.2.3.4:9090
+    2. 容器化域名: to74zigu-nx6sqm6b-6001.zjrestapi.gpufree.cn
+    """
+    # 解析URL获取主机名和端口
+    parsed1 = urlparse(url1)
+    parsed2 = urlparse(url2)
+    
+    host1 = parsed1.netloc.split(':')[0]
+    host2 = parsed2.netloc.split(':')[0]
+    
+    # 如果是IP地址格式，直接比较IP部分
+    ip_pattern = re.compile(r'\d+\.\d+\.\d+\.\d+')
+    if ip_pattern.match(host1) and ip_pattern.match(host2):
+        return host1 == host2
+    
+    # 针对容器化域名格式: to74zigu-nx6sqm6b-6001.zjrestapi.gpufree.cn
+    container_pattern = re.compile(r'(.*?)-\d+\.(.*)$')
+    match1 = container_pattern.match(host1)
+    match2 = container_pattern.match(host2)
+    
+    if match1 and match2:
+        # 提取前缀和后缀，忽略端口部分
+        prefix1, suffix1 = match1.groups()
+        prefix2, suffix2 = match2.groups()
+        return prefix1 == prefix2 and suffix1 == suffix2
+    
+    # 其他情况直接比较主机名
+    return host1 == host2
+
+# 获取用于访问后端的URL
+def get_backend_url(target_url, endpoint=None, port=6001):
+    """
+    根据目标URL判断是否为同一台机器，是则返回localhost地址
+    
+    参数:
+        target_url: 目标服务器URL
+        endpoint: API端点路径 (可选)
+        port: 如果是本地访问，使用的端口号
+    """
+    if is_same_host(CURRENT_WORKER_URL, target_url):
+        # 同一台机器，使用localhost
+        url = f"http://localhost:{port}"
+        log_with_task_id("system", f"检测到同一台机器，使用本地地址: {url}")
+    else:
+        # 不同机器，使用原URL
+        url = target_url
+        
+    # 添加端点路径
+    if endpoint:
+        if not endpoint.startswith('/'):
+            endpoint = '/' + endpoint
+        url = url + endpoint
+    
+    return url
+
+# 心跳相关配置
+ENABLE_HEARTBEAT = True  # 是否启用心跳
+BACKEND_PORT = 6001      # 后端服务端口
+
+# 生成回调和心跳URL
+BACKEND_CALLBACK_URL = get_backend_url(BACKEND_URL, "/api/task/callback", BACKEND_PORT)
+BACKEND_HEARTBEAT_URL = get_backend_url(BACKEND_URL, "/api/tasks/interface/heartbeat", BACKEND_PORT)
+BACKEND_IDENTIFICATION = "wingerboy"  # 身份标识，按需修改
+HEARTBEAT_INTERVAL = 60  # 心跳间隔秒
+
+# 打印重要的URL配置信息
+log_with_task_id("system", f"后端回调URL: {BACKEND_CALLBACK_URL}")
+log_with_task_id("system", f"心跳URL: {BACKEND_HEARTBEAT_URL}")
 
 BG_SAVE_PATH="/root/gpufree-share/videos/background"
 ORIGIN_VIDEO_PATH="/root/gpufree-share/videos/originvideo"
@@ -560,7 +631,7 @@ def heartbeat_loop():
         log_with_task_id("heartbeat", "心跳功能已禁用")
         return
         
-    log_with_task_id("heartbeat", f"心跳服务启动 - URL: {HEARTBEAT_URL}")
+    log_with_task_id("heartbeat", f"心跳服务启动 - URL: {BACKEND_HEARTBEAT_URL}")
     
     while True:
         try:
@@ -572,7 +643,7 @@ def heartbeat_loop():
             log_with_task_id("heartbeat", f"发送心跳: {payload}")
             
             # 发送请求
-            resp = requests.post(HEARTBEAT_URL, json=payload, timeout=10)
+            resp = requests.post(BACKEND_HEARTBEAT_URL, json=payload, timeout=10)
             
             # 处理响应
             if resp.status_code == 200:
