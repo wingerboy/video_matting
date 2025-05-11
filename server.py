@@ -42,6 +42,23 @@ logger.addFilter(task_id_filter)
 
 app = FastAPI(title="AI视频处理服务")
 
+# 创建一个辅助函数，用于在上下文中设置任务ID
+def log_with_task_id(task_id, message, level='info'):
+    """使用任务ID记录日志"""
+    extra = {'task_id': task_id if task_id else 'no-task-id'}
+    if level == 'debug':
+        logger.debug(message, extra=extra)
+    elif level == 'info':
+        logger.info(message, extra=extra)
+    elif level == 'warning':
+        logger.warning(message, extra=extra)
+    elif level == 'error':
+        logger.error(message, extra=extra)
+    elif level == 'critical':
+        logger.critical(message, extra=extra)
+    else:
+        logger.info(message, extra=extra)
+
 # 存储任务状态的字典
 tasks_status = {}
 
@@ -239,22 +256,6 @@ class TaskStatus:
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
 
-# 创建一个辅助函数，用于在上下文中设置任务ID
-def log_with_task_id(task_id, message, level='info'):
-    """使用任务ID记录日志"""
-    extra = {'task_id': task_id if task_id else 'no-task-id'}
-    if level == 'debug':
-        logger.debug(message, extra=extra)
-    elif level == 'info':
-        logger.info(message, extra=extra)
-    elif level == 'warning':
-        logger.warning(message, extra=extra)
-    elif level == 'error':
-        logger.error(message, extra=extra)
-    elif level == 'critical':
-        logger.critical(message, extra=extra)
-    else:
-        logger.info(message, extra=extra)
 
 def update_task_status(task_id: str, status: str, progress: float = 0, message: str = ""):
     """更新任务状态并通知Java后端"""
