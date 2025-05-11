@@ -14,12 +14,29 @@ import traceback
 from video_extractor import extract_video, apply_custom_background, default_callback, HAS_MOVIEPY
 
 # 配置日志
+class TaskIDFilter(logging.Filter):
+    """
+    添加任务ID到日志记录的过滤器
+    """
+    def __init__(self, name=''):
+        super().__init__(name)
+        self.task_id = ''
+    
+    def filter(self, record):
+        record.task_id = getattr(record, 'task_id', 'no-task-id')
+        return True
+
+# 创建过滤器实例
+task_id_filter = TaskIDFilter()
+
+# 配置日志
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format='%(asctime)s [%(task_id)s] - %(name)s - %(levelname)s - %(message)s',
     handlers=[logging.StreamHandler()]
 )
 logger = logging.getLogger(__name__)
+logger.addFilter(task_id_filter)
 
 app = FastAPI(title="AI视频处理服务")
 
@@ -27,9 +44,9 @@ app = FastAPI(title="AI视频处理服务")
 tasks_status = {}
 
 # Java回调地址 (可配置)
-BACKEND_CALLBACK_URL="http://localhost:6001/api/task/callback"
+BACKEND_CALLBACK_URL="https://to74zigu-nx6sqm6b-6001.zjrestapi.gpufree.cn:8443/api/task/callback"
 # 心跳相关配置
-HEARTBEAT_URL = "http://localhost:6001/api/task/interface/heartbeat"  # 后端心跳接口地址，按需修改
+HEARTBEAT_URL = "https://to74zigu-nx6sqm6b-6001.zjrestapi.gpufree.cn:8443/api/task/interface/heartbeat"  # 后端心跳接口地址，按需修改
 BACKEND_IDENTIFICATION = "wingerboy"  # 身份标识，按需修改
 HEARTBEAT_INTERVAL = 60  # 心跳间隔秒
 # 当前AI server服务对外地址，按需修改
@@ -150,6 +167,22 @@ class TaskStatus:
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
 
+# 创建一个辅助函数，用于在上下文中设置任务ID
+def log_with_task_id(task_id, message, level='info'):
+    """使用任务ID记录日志"""
+    extra = {'task_id': task_id if task_id else 'no-task-id'}
+    if level == 'debug':
+        logger.debug(message, extra=extra)
+    elif level == 'info':
+        logger.info(message, extra=extra)
+    elif level == 'warning':
+        logger.warning(message, extra=extra)
+    elif level == 'error':
+        logger.error(message, extra=extra)
+    elif level == 'critical':
+        logger.critical(message, extra=extra)
+    else:
+        logger.info(message, extra=extra)
 
 def update_task_status(task_id: str, status: str, progress: float = 0, message: str = ""):
     """更新任务状态并通知Java后端"""
@@ -171,14 +204,14 @@ def update_task_status(task_id: str, status: str, progress: float = 0, message: 
             "message": message
         }
         
-        logger.info(f"向Java后端报告进度: {json.dumps(payload)}")
+        log_with_task_id(task_id, f"向Java后端报告进度: {json.dumps(payload)}")
         
         # 实际环境中取消注释下面的代码
         # response = requests.post(BACKEND_CALLBACK_URL, json=payload)
         # if response.status_code != 200:
-        #     logger.error(f"向后端报告进度失败: {response.text}")
+        #     log_with_task_id(task_id, f"向后端报告进度失败: {response.text}", 'error')
     except Exception as e:
-        logger.error(f"向Java后端报告进度出错: {str(e)}")
+        log_with_task_id(task_id, f"向Java后端报告进度出错: {str(e)}", 'error')
 
 # 自定义进度回调函数
 def create_progress_callback(task_id):
@@ -217,26 +250,34 @@ def process_video_segment(task_id, task_params):
         # 检查输入文件是否存在
         if not os.path.exists(origin_video_path):
             error_msg = f"输入视频不存在: {origin_video_path}"
-            logger.error(error_msg)
+            log_with_task_id(task_id, error_msg, 'error')
             update_task_status(task_id, TaskStatus.FAILED, 100, error_msg)
             return result
         
         if not os.path.exists(bg_path):
             error_msg = f"背景图片不存在: {bg_path}"
-            logger.error(error_msg)
+            log_with_task_id(task_id, error_msg, 'error')
             update_task_status(task_id, TaskStatus.FAILED, 100, error_msg)
             return result
         
         # 检查模型配置是否存在
         if model_name not in model_config:
             error_msg = f"未知的模型名称: {model_name}"
-            logger.error(error_msg)
+            log_with_task_id(task_id, error_msg, 'error')
+            update_task_status(task_id, TaskStatus.FAILED, 100, error_msg)
+            return result
+        
+        # 检查模型是否可用
+        model_info = model_config[model_name]
+        if model_info.get("available") is False:
+            error_msg = f"错误: 模型暂时不可用: {model_name}. 原因: {model_info.get('reason', '未知')}"
+            log_with_task_id(task_id, error_msg, 'error')
             update_task_status(task_id, TaskStatus.FAILED, 100, error_msg)
             return result
         
         # 创建进度回调函数
         def progress_callback(status, progress, message=""):
-            logger.info(f"任务 {task_id}: {status} - {progress}% - {message}")
+            log_with_task_id(task_id, f"任务进度: {status} - {progress}% - {message}")
             task_status = TaskStatus.PROCESSING
             if status == "failed":
                 task_status = TaskStatus.FAILED
@@ -273,7 +314,7 @@ def process_video_segment(task_id, task_params):
         # 检查掩码视频是否已存在
         skip_segmentation = False
         if os.path.exists(mask_video_path):
-            logger.info(f"掩码视频已存在，跳过分割阶段: {mask_video_path}")
+            log_with_task_id(task_id, f"掩码视频已存在，跳过分割阶段: {mask_video_path}")
             skip_segmentation = True
             update_task_status(task_id, TaskStatus.PROCESSING, 50, "已找到现有掩码视频，跳过分割阶段")
         
@@ -282,17 +323,16 @@ def process_video_segment(task_id, task_params):
             update_task_status(task_id, TaskStatus.PROCESSING, 10, "正在进行视频分割...")
             
             try:
-                logger.info(f"开始提取视频: {origin_video_path}")
+                log_with_task_id(task_id, f"开始提取视频: {origin_video_path}")
                 model_path = model_config[model_name]["model_path"]
                 method = model_config[model_name].get("method", "birefnet")
                 batch_size = model_config[model_name].get("max_batch_size", 4)
-                logger.info(f"使用模型 {model_name}, 方法 {method}")
+                log_with_task_id(task_id, f"使用模型 {model_name}, 方法 {method}")
                 
                 # 提取视频，生成掩码
                 mask_path = extract_video(
                     video_path=origin_video_path,
                     model_path=model_path,
-                    foreground_video_path=foreground_video_path,
                     output_mask_path=mask_video_path,
                     method=method,
                     image_size=image_size,
@@ -303,16 +343,16 @@ def process_video_segment(task_id, task_params):
                 # 检查掩码是否成功创建
                 if not os.path.exists(mask_video_path):
                     error_msg = f"视频分割失败，无法创建掩码视频: {mask_video_path}"
-                    logger.error(error_msg)
+                    log_with_task_id(task_id, error_msg, 'error')
                     update_task_status(task_id, TaskStatus.FAILED, 100, error_msg)
                     return result
                 
-                logger.info(f"视频分割完成，掩码生成在: {mask_path}")
+                log_with_task_id(task_id, f"视频分割完成，掩码生成在: {mask_path}")
                 
             except Exception as e:
                 error_msg = f"视频分割过程中出错: {str(e)}"
-                logger.error(error_msg)
-                logger.error(traceback.format_exc())
+                log_with_task_id(task_id, error_msg, 'error')
+                log_with_task_id(task_id, traceback.format_exc(), 'error')
                 update_task_status(task_id, TaskStatus.FAILED, 100, error_msg)
                 return result
         
@@ -335,16 +375,16 @@ def process_video_segment(task_id, task_params):
             # 检查合成视频是否成功创建
             if not os.path.exists(composite_video_path):
                 error_msg = f"应用背景失败，无法创建合成视频: {composite_video_path}"
-                logger.error(error_msg)
+                log_with_task_id(task_id, error_msg, 'error')
                 update_task_status(task_id, TaskStatus.FAILED, 100, error_msg)
                 return result
             
-            logger.info(f"背景应用完成，合成视频生成在: {composite_path}")
+            log_with_task_id(task_id, f"背景应用完成，合成视频生成在: {composite_path}")
             
         except Exception as e:
             error_msg = f"应用背景过程中出错: {str(e)}"
-            logger.error(error_msg)
-            logger.error(traceback.format_exc())
+            log_with_task_id(task_id, error_msg, 'error')
+            log_with_task_id(task_id, traceback.format_exc(), 'error')
             update_task_status(task_id, TaskStatus.FAILED, 100, error_msg)
             return result
         
@@ -353,8 +393,8 @@ def process_video_segment(task_id, task_params):
         
     except Exception as e:
         error_msg = f"任务处理过程中出错: {str(e)}"
-        logger.error(error_msg)
-        logger.error(traceback.format_exc())
+        log_with_task_id(task_id, error_msg, 'error')
+        log_with_task_id(task_id, traceback.format_exc(), 'error')
         update_task_status(task_id, TaskStatus.FAILED, 100, error_msg)
     
     return result
@@ -369,7 +409,7 @@ async def video_segment_task_executor(
     
     # 如果没有提供task_id，生成一个
     if not task_id:
-        logger.error(f"请求中无taskId")
+        log_with_task_id("no-task-id", "请求中无taskId", 'error')
         return {
             "taskId": "error",
             "status": "fail",
@@ -378,14 +418,14 @@ async def video_segment_task_executor(
     
     try:
         # 记录开始处理的任务
-        logger.info(f"接收到视频分割任务请求: {task_id}")
-        logger.info(f"请求参数: 视频={request.videoPath}, 模型={request.modelName}, 背景={request.backgroundPath}")
+        log_with_task_id(task_id, f"接收到视频分割任务请求")
+        log_with_task_id(task_id, f"请求参数: 视频={request.videoPath}, 模型={request.modelName}, 背景={request.backgroundPath}")
         
         # 检查请求参数
         # 检查图片格式
         valid_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff']
         if not request.backgroundPath or not any(request.backgroundPath.lower().endswith(ext) for ext in valid_extensions):
-            logger.error(f"警告: 背景图片格式可能不受支持或未提供: {request.backgroundPath}")
+            log_with_task_id(task_id, f"警告: 背景图片格式可能不受支持或未提供: {request.backgroundPath}", 'error')
             return {
                 "taskId": task_id,
                 "status": "fail",
@@ -395,7 +435,7 @@ async def video_segment_task_executor(
         # 参数验证
         if not os.path.exists(request.videoPath):
             error_msg = f"错误: 输入视频不存在: {request.videoPath}"
-            logger.error(error_msg)
+            log_with_task_id(task_id, error_msg, 'error')
             return {
                 "taskId": task_id,
                 "status": "fail",
@@ -405,13 +445,23 @@ async def video_segment_task_executor(
         # 检查模型是否存在
         if request.modelName not in model_config:
             error_msg = f"错误: 未知的模型名称: {request.modelName}"
-            logger.error(error_msg)
+            log_with_task_id(task_id, error_msg, 'error')
             return {
                 "taskId": task_id,
                 "status": "fail",
                 "message": error_msg
             }
-
+            
+        # 检查模型是否可用
+        model_info = model_config[request.modelName]
+        if model_info.get("available") is False:
+            error_msg = f"错误: 模型暂时不可用: {request.modelName}. 原因: {model_info.get('reason', '未知')}"
+            log_with_task_id(task_id, error_msg, 'error')
+            return {
+                "taskId": task_id,
+                "status": "fail",
+                "message": error_msg
+            }
             
         # 确保mask_video_path有值
         mask_video_path = request.foregroundPath
@@ -426,7 +476,7 @@ async def video_segment_task_executor(
                 MASK_VIDEO_PATH, 
                 f"mask-{video_name}-{bg_name}-{model_name}-{image_size[0]}x{image_size[1]}.mp4"
             )
-            logger.info(f"使用默认掩码路径: {mask_video_path}")
+            log_with_task_id(task_id, f"使用默认掩码路径: {mask_video_path}")
             
         # 确保目录存在
         os.makedirs(os.path.dirname(mask_video_path), exist_ok=True)
@@ -436,7 +486,13 @@ async def video_segment_task_executor(
         if request.callbackUrl:
             global BACKEND_CALLBACK_URL
             BACKEND_CALLBACK_URL = request.callbackUrl
-            logger.info(f"更新回调URL: {BACKEND_CALLBACK_URL}")
+            log_with_task_id(task_id, f"更新回调URL: {BACKEND_CALLBACK_URL}")
+        
+        # 如果提供了worker地址，更新全局worker地址
+        if request.workerUrl:
+            global CURRENT_WORKER_URL
+            CURRENT_WORKER_URL = request.workerUrl
+            log_with_task_id(task_id, f"更新worker地址: {CURRENT_WORKER_URL}")
         
         # 准备任务参数
         task_params = {
@@ -454,6 +510,7 @@ async def video_segment_task_executor(
         background_tasks.add_task(process_video_segment, task_id, task_params)
         
         # 立即返回响应
+        log_with_task_id(task_id, "视频分割任务已接收并开始处理")
         return {
             "taskId": task_id,
             "status": "accepted",
@@ -462,8 +519,8 @@ async def video_segment_task_executor(
         }
     except Exception as e:
         error_msg = f"处理请求时出错: {str(e)}"
-        logger.error(error_msg)
-        logger.error(traceback.format_exc())
+        log_with_task_id(task_id, error_msg, 'error')
+        log_with_task_id(task_id, traceback.format_exc(), 'error')
         return {
             "taskId": task_id,
             "status": "fail",
@@ -472,15 +529,28 @@ async def video_segment_task_executor(
 
 @app.get("/api/task/{task_id}/status")
 async def get_task_status(task_id: str):
-    """获取任务状态"""
-    if task_id not in tasks_status:
-        raise HTTPException(status_code=404, detail=f"找不到任务 {task_id}")
-    
-    return tasks_status[task_id]
+    """获取任务的当前状态"""
+    if task_id in tasks_status:
+        log_with_task_id(task_id, f"查询任务状态: {tasks_status[task_id]}")
+        return {
+            "taskId": task_id,
+            "status": tasks_status[task_id]["status"],
+            "progress": tasks_status[task_id]["progress"],
+            "message": tasks_status[task_id]["message"],
+            "updated": tasks_status[task_id]["updated_at"]
+        }
+    else:
+        log_with_task_id(task_id, "未找到任务状态", 'warning')
+        return {
+            "taskId": task_id,
+            "status": "unknown",
+            "message": "未找到任务"
+        }
 
 @app.get("/health")
 async def health_check():
-    """健康检查接口"""
+    """健康检查端点"""
+    log_with_task_id("health", "执行健康检查")
     return {"status": "ok", "service": "AI视频处理服务"}
 
 def heartbeat_loop():
@@ -492,11 +562,11 @@ def heartbeat_loop():
             }
             resp = requests.post(HEARTBEAT_URL, json=payload, timeout=10)
             if resp.status_code == 200:
-                logger.info("心跳成功")
+                log_with_task_id("heartbeat", "心跳成功")
             else:
-                logger.warning(f"心跳失败: {resp.status_code} {resp.text}")
+                log_with_task_id("heartbeat", f"心跳失败: {resp.status_code} {resp.text}", 'warning')
         except Exception as e:
-            logger.warning(f"心跳异常: {e}")
+            log_with_task_id("heartbeat", f"心跳异常: {e}", 'warning')
         time.sleep(HEARTBEAT_INTERVAL)
 
 # 启动心跳线程
