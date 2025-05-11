@@ -436,62 +436,6 @@ def create_color_background(color, target_size, device):
     
     return bg
 
-# 添加默认回调函数
-def default_callback(status, progress=0, message=""):
-    """默认回调函数，打印状态信息
-    
-    参数:
-        status: 状态类型，如'init', 'progress', 'complete', 'error'
-        progress: 进度百分比，0-100
-        message: 状态信息
-    """
-    if status == 'init':
-        print(f"初始化: {message}")
-    elif status == 'progress':
-        print(f"进度: {progress:.1f}%, {message}")
-    elif status == 'complete':
-        print(f"完成: {message}")
-    elif status == 'error':
-        print(f"错误: {message}")
-    else:
-        print(f"状态: {status}, {message}")
-
-def simple_callback(status, progress=0, message=""):
-    """简化版回调函数，只显示进度条
-    
-    参数:
-        status: 状态类型，如'init', 'progress', 'complete', 'error'
-        progress: 进度百分比，0-100
-        message: 状态信息
-    """
-    import sys
-    if status == 'progress':
-        bar_length = 50
-        filled_length = int(progress / 100 * bar_length)
-        bar = '█' * filled_length + '░' * (bar_length - filled_length)
-        sys.stdout.write(f"\r进度: [{bar}] {progress:.1f}% {message}")
-        sys.stdout.flush()
-    elif status in ['complete', 'error']:
-        sys.stdout.write('\n')
-        print(f"{status}: {message}")
-    elif status == 'init':
-        print(f"开始处理: {message}")
-
-def verbose_callback(status, progress=0, message=""):
-    """详细版回调函数，显示所有状态变化和时间戳
-    
-    参数:
-        status: 状态类型，如'init', 'progress', 'complete', 'error'
-        progress: 进度百分比，0-100
-        message: 状态信息
-    """
-    import datetime
-    timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
-    if status == 'progress':
-        print(f"[{timestamp}] 进度更新: {progress:.1f}%, {message}")
-    else:
-        print(f"[{timestamp}] 状态变化: {status}, {message}")
-
 # 拆分预测和背景合成部分
 def predict_video_mask_birefnet(
     video_path, 
@@ -501,7 +445,9 @@ def predict_video_mask_birefnet(
     image_size=(512, 512), 
     batch_size=4, 
     bg_color=(0, 255, 0),
-    callback=default_callback
+    callback=None,
+    start_progress=0,
+    end_progress=100
 ):
     """
     BiRefNet模型预测视频前景掩码和合成默认背景的视频，不处理音频
@@ -515,17 +461,24 @@ def predict_video_mask_birefnet(
         batch_size: 批处理大小
         bg_color: 默认背景颜色RGB值
         callback: 回调函数，用于报告进度
+        start_progress: 起始进度值（0-100）
+        end_progress: 结束进度值（0-100）
         
     返回:
         tuple: (掩码视频路径, 合成视频路径)
     """
+    # 进度映射函数
+    def map_progress(progress):
+        return start_progress + (progress / 100) * (end_progress - start_progress)
+    
     # 初始化状态
-    callback('init', 0, f"开始处理视频: {video_path}")
+    callback('processing', map_progress(0), f"开始处理视频: {video_path}")
     print(f"处理视频: {video_path}")
     
     try:
-        # 使用智能加载函数加载模型
+        # 使用智能加载函数加载模型 (大约占10%)
         birefnet = load_birefnet_model(model_path, device)
+        callback('processing', map_progress(10), "模型加载完成")
         
         # 使用半精度加速
         use_fp16 = device.type == 'cuda'
@@ -542,7 +495,7 @@ def predict_video_mask_birefnet(
         # 获取视频尺寸
         ret, first_frame = cap.read()
         if not ret:
-            callback('error', 0, "无法读取视频")
+            callback('error', map_progress(10), "无法读取视频")
             print("无法读取视频")
             
         original_h, original_w = first_frame.shape[:2]
@@ -557,14 +510,17 @@ def predict_video_mask_birefnet(
         mask_writer = cv2.VideoWriter(output_mask_path, fourcc, fps, (original_w, original_h), False)
         composite_writer = cv2.VideoWriter(output_composite_path, fourcc, fps, (original_w, original_h), True)
         
+        # 进度分配: 10% 已用于模型加载，80%用于帧处理，10%用于完成和清理
+        callback('processing', map_progress(20), "开始处理视频帧")
+        
         # 开始计时
         start_time = time()
         # 处理视频帧
         with torch.no_grad():
             for frame_idx in tqdm(range(0, total_frames, batch_size)):
-                # 计算并报告进度
-                progress = 30 + (frame_idx / total_frames) * 60  # 占总进度的60%
-                callback('progress', progress, f"处理帧 {frame_idx}/{total_frames}")
+                # 计算并报告进度 (20%-90%区间)
+                frame_progress = 20 + (frame_idx / total_frames) * 70
+                callback('processing', map_progress(frame_progress), f"处理帧 {frame_idx}/{total_frames}")
                 
                 # 收集一批帧
                 frames = []
@@ -640,7 +596,7 @@ def predict_video_mask_birefnet(
                     
                 except Exception as e:
                     error_msg = f"处理帧 {frame_idx} 时发生错误: {e}"
-                    callback('error', progress, error_msg)
+                    callback('error', map_progress(frame_progress), error_msg)
                     print(error_msg)
                     import traceback
                     traceback.print_exc()
@@ -661,21 +617,24 @@ def predict_video_mask_birefnet(
         total_time = time() - start_time
         fps_achieved = total_frames / total_time
         
-        callback('complete', 100, f"处理完成，平均速度: {fps_achieved:.2f} FPS")
+        callback('processing', map_progress(90), "处理完成，正在最终检查")
+        
+        # 验证输出文件存在
+        if not os.path.exists(output_mask_path) or not os.path.exists(output_composite_path):
+            callback('processing', map_progress(95), "输出文件可能未正确生成")
+            print("警告: 输出文件可能未正确生成")
+        
+        # 处理完成
+        callback('completed', map_progress(100), f"处理完成，平均速度: {fps_achieved:.2f} FPS")
         print(f"视频处理完成!")
         print(f"总时间: {total_time:.2f}秒")
         print(f"平均处理速度: {fps_achieved:.2f} FPS")
         print(f"输出文件:")
         print(f"1. 掩码视频: {output_mask_path}")
         print(f"2. 合成视频: {output_composite_path}")
-        
-        # 验证输出文件存在
-        if not os.path.exists(output_mask_path) or not os.path.exists(output_composite_path):
-            callback('warning', 100, "输出文件可能未正确生成")
-            print("警告: 输出文件可能未正确生成")
     
     except Exception as e:
-        callback('error', 0, f"处理视频时发生错误: {e}")
+        callback('error', map_progress(50), f"处理视频时发生错误: {e}")
         print(f"处理视频时发生错误: {e}")
         import traceback
         traceback.print_exc()
@@ -687,7 +646,9 @@ def predict_video_mask_ben2(
     model_path, 
     batch_size=4, 
     bg_color=(0, 255, 0),
-    callback=default_callback
+    callback=None,
+    start_progress=0,
+    end_progress=100
 ):
     """
     BEN2模型预测视频前景掩码和合成默认背景的视频，不处理音频
@@ -700,21 +661,29 @@ def predict_video_mask_ben2(
         batch_size: 批处理大小
         bg_color: 默认背景颜色RGB值
         callback: 回调函数，用于报告进度
+        start_progress: 起始进度值（0-100）
+        end_progress: 结束进度值（0-100）
         
     返回:
         tuple: (掩码视频路径, 合成视频路径)
     """
+    # 进度映射函数
+    def map_progress(progress):
+        return start_progress + (progress / 100) * (end_progress - start_progress)
+        
     if not HAS_BEN2:
         error_msg = "错误: 未安装BEN2模型，无法使用此方法"
-        callback('error', 0, error_msg)
+        callback('error', map_progress(0), error_msg)
         print(error_msg)
         print("请安装BEN2模型后重试")
+        return None, None
         
-    callback('init', 0, f"开始处理视频: {video_path}")
+    # 初始化状态
+    callback('processing', map_progress(0), f"开始处理视频: {video_path}")
     
     try:
-        # 初始化BEN2模型
-        callback('loading', 10, "加载BEN2模型...")
+        # 初始化BEN2模型 (占10%)
+        callback('processing', map_progress(10), "加载BEN2模型...")
         model = BEN2.BEN_Base().to(device).eval()
         model.loadcheckpoints(model_path)
         
@@ -724,14 +693,15 @@ def predict_video_mask_ben2(
         os.makedirs(os.path.dirname(output_mask_path), exist_ok=True)
         os.makedirs(os.path.dirname(output_composite_path), exist_ok=True)
         
-        # 直接使用BEN2的视频分割功能
-        callback('processing', 30, "提取视频前景和掩码...")
+        # 直接使用BEN2的视频分割功能 (10%-90%)
+        callback('processing', map_progress(20), "准备提取视频前景和掩码...")
         try:
             # 处理进度监控
             def progress_monitor(frame, total, message="处理中"):
-                progress = 30 + (frame / total) * 60
+                # 将BEN2内部进度映射到20%-90%区间
+                ben2_progress = 20 + (frame / total) * 70
                 if callable(callback):
-                    callback('progress', progress, f"BEN2 {message}: {frame}/{total}")
+                    callback('processing', map_progress(ben2_progress), f"BEN2 {message}: {frame}/{total}")
             
             # 使用BEN2直接处理视频
             result_mask_path, result_composite_path = model.segment_video_v2(
@@ -745,18 +715,22 @@ def predict_video_mask_ben2(
                 progress_callback=progress_monitor
             )
             
+            # 最终检查和清理 (90%-100%)
+            callback('processing', map_progress(90), "处理完成，正在进行最终检查")
+            
             # 检查输出文件是否存在
             if not os.path.exists(output_mask_path):
-                callback('warning', 90, "掩码视频文件未生成")
+                callback('processing', map_progress(95), "掩码视频文件未生成")
                 print("警告: 掩码视频文件未生成")
                 result_mask_path = None
                 
             if not os.path.exists(output_composite_path):
-                callback('warning', 90, "合成视频文件未生成")
+                callback('processing', map_progress(95), "合成视频文件未生成")
                 print("警告: 合成视频文件未生成")
                 result_composite_path = None
             
-            callback('complete', 100, "BEN2视频处理完成")
+            # 处理完成
+            callback('completed', map_progress(100), "BEN2视频处理完成")
             print(f"BEN2视频处理完成")
             print(f"输出文件:")
             if result_mask_path:
@@ -768,7 +742,7 @@ def predict_video_mask_ben2(
             
         except Exception as e:
             error_msg = f"BEN2视频处理出错: {e}"
-            callback('error', 60, error_msg)
+            callback('error', map_progress(60), error_msg)
             print(error_msg)
             import traceback
             traceback.print_exc()
@@ -776,7 +750,7 @@ def predict_video_mask_ben2(
             
     except Exception as e:
         error_msg = f"BEN2处理视频时出错: {e}"
-        callback('error', 0, error_msg)
+        callback('error', map_progress(30), error_msg)
         print(error_msg)
         import traceback
         traceback.print_exc()
@@ -788,7 +762,9 @@ def apply_custom_background(
     background_path,
     output_composite_path,
     include_audio=True,
-    callback=default_callback
+    callback=None,
+    start_progress=0,
+    end_progress=100
 ):
     """
     将视频前景与自定义背景合成，同时保留原始音频
@@ -800,22 +776,30 @@ def apply_custom_background(
         output_composite_path: 输出合成视频路径
         include_audio: 是否包含原始视频的音频
         callback: 回调函数，用于报告进度
+        start_progress: 起始进度值（0-100）
+        end_progress: 结束进度值（0-100）
         
     返回:
         str: 合成视频路径，失败时返回None
     """
+    # 进度映射函数
+    def map_progress(progress):
+        return start_progress + (progress / 100) * (end_progress - start_progress)
+        
     try:        
         # 确保输出目录存在
         os.makedirs(os.path.dirname(output_composite_path), exist_ok=True)
         
-        callback('processing', 5, "开始合成视频和背景")
+        callback('processing', map_progress(5), "开始合成视频和背景")
         
         # 打开视频
+        callback('processing', map_progress(10), "加载视频和掩码")
         video_clip = VideoFileClip(video_path)
         mask_clip = VideoFileClip(mask_video_path)
         bg_image = Image.open(background_path)
         
         # 确保背景尺寸和视频一致
+        callback('processing', map_progress(20), "处理背景图像")
         bg_image = bg_image.resize((video_clip.size[0], video_clip.size[1]), Image.LANCZOS)
         
         # 创建持续时间与视频相同的图像clip
@@ -840,15 +824,16 @@ def apply_custom_background(
             return composite
         
         # 创建合成视频
+        callback('processing', map_progress(30), "创建合成视频")
         composite_clip = VideoClip(make_frame, duration=video_clip.duration)
         
         # 添加原始音频（如果需要）
         if include_audio and video_clip.audio is not None:
-            callback('processing', 75, "正在添加音频")
+            callback('processing', map_progress(60), "正在添加音频")
             composite_clip = composite_clip.set_audio(video_clip.audio)
         
-        # 写入输出文件
-        callback('processing', 80, "正在保存合成视频")
+        # 写入输出文件 (最耗时部分，分配60%-95%)
+        callback('processing', map_progress(70), "正在保存合成视频")
         composite_clip.write_videofile(
             output_composite_path,
             codec='libx264',
@@ -857,17 +842,20 @@ def apply_custom_background(
         )
         
         # 清理资源
+        callback('processing', map_progress(95), "清理资源")
         video_clip.close()
         mask_clip.close()
         bg_clip.close()
         composite_clip.close()
         
-        callback('complete', 100, "合成视频处理完成")
+        # 完成
+        callback('completed', map_progress(100), "合成视频处理完成")
         print(f"合成视频处理完成: {output_composite_path}")
+        return output_composite_path
     
     except Exception as e:
         error_msg = f"合成视频处理出错: {e}"
-        callback('error', 0, error_msg)
+        callback('error', map_progress(50), error_msg)
         print(error_msg)
         import traceback
         traceback.print_exc()
@@ -884,6 +872,8 @@ def apply_custom_background(
                 composite_clip.close()
         except:
             pass
+        
+        return None
 
 # 修改原有process_video函数为调用新拆分的函数
 def extract_video(
@@ -895,7 +885,9 @@ def extract_video(
     image_size=(512, 512),
     batch_size=4,
     bg_color=(0, 255, 0),
-    callback=default_callback
+    callback=None,
+    start_progress=0,
+    end_progress=100
 ):
     """
     统一的视频处理入口函数，支持多种模型和背景处理
@@ -910,22 +902,31 @@ def extract_video(
         batch_size: 批处理大小
         bg_color: 背景颜色RGB值，默认为绿色(0,255,0)
         callback: 回调函数，用于报告进度
+        start_progress: 起始进度值（0-100）
+        end_progress: 结束进度值（0-100）
         
     返回:
-        tuple: (掩码视频路径, None)，处理失败时返回(None, None)
+        str: 掩码视频路径，处理失败时返回None
     """
-    try:        
+    # 进度映射函数
+    def map_progress(progress):
+        return start_progress + (progress / 100) * (end_progress - start_progress)
+    
+    try:
+        # 初始检查和准备阶段 (0-5%)
+        callback('processing', map_progress(0), f"开始处理视频: {video_path}")
         os.makedirs(os.path.dirname(output_mask_path), exist_ok=True)
+        callback('processing', map_progress(5), "准备处理模型和视频")
         
-        # 根据方法选择处理函数
+        # 根据方法选择处理函数 - 分配5%-95%的进度区间给模型处理函数
         if method.lower() == "ben2":
             if not HAS_BEN2:
                 error_msg = "错误: 未安装BEN2模型，无法使用此方法"
-                callback('error', 0, error_msg)
+                callback('error', map_progress(5), error_msg)
                 print(error_msg)
-                return None, None
+                return None
                 
-            # 禁用合成视频输出，只生成掩码
+            # 禁用合成视频输出，只生成掩码 (5%-95%)
             predict_video_mask_ben2(
                 video_path=video_path,
                 output_mask_path=output_mask_path,
@@ -933,11 +934,13 @@ def extract_video(
                 model_path=model_path,
                 batch_size=batch_size,
                 bg_color=bg_color,
-                callback=callback
+                callback=callback,
+                start_progress=map_progress(5),
+                end_progress=map_progress(95)
             )
             
         elif method.lower() == "birefnet":
-            # 禁用合成视频输出，只生成掩码
+            # 禁用合成视频输出，只生成掩码 (5%-95%)
             predict_video_mask_birefnet(
                 video_path=video_path,
                 output_mask_path=output_mask_path,
@@ -946,21 +949,29 @@ def extract_video(
                 image_size=image_size, 
                 batch_size=batch_size, 
                 bg_color=bg_color,
-                callback=callback
+                callback=callback,
+                start_progress=map_progress(5),
+                end_progress=map_progress(95)
             )
         
+        # 最终检查和完成阶段 (95%-100%)
+        callback('processing', map_progress(95), "正在执行最终检查")
+        
         # 检查输出文件是否存在
-        if os.path.exists(mask_path) and os.path.exists(foreground_video_path):
-            callback('complete', 100, "掩码视频生成完成")
-            print(f"掩码视频生成完成: {mask_path}, 前景视频生成完成: {foreground_video_path}")
+        if os.path.exists(output_mask_path) and os.path.exists(foreground_video_path):
+            callback('completed', map_progress(100), "掩码视频生成完成")
+            print(f"掩码视频生成完成: {output_mask_path}, 前景视频生成完成: {foreground_video_path}")
         else:
             warn_msg = f"警告: 掩码视频or前景视频未生成: {output_mask_path} or {foreground_video_path}"
-            callback('warning', 95, warn_msg)
+            callback('processing', map_progress(98), warn_msg)
             print(warn_msg)
+        
+        return output_mask_path
     
     except Exception as e:
         error_msg = f"视频处理出错: {e}"
-        callback('error', 0, error_msg)
+        callback('error', map_progress(50), error_msg)
         print(error_msg)
         import traceback
         traceback.print_exc()
+        return None

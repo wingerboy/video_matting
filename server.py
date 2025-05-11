@@ -277,30 +277,140 @@ def update_task_status(task_id: str, status: str, progress: float = 0, message: 
             "message": message
         }
         
-        log_with_task_id(task_id, f"向Java后端报告进度: {json.dumps(payload)}")
+        log_with_task_id(task_id, f"向后端报告进度: {json.dumps(payload)}")
         
         # 实际环境中取消注释下面的代码
-        # response = requests.post(BACKEND_CALLBACK_URL, json=payload)
-        # if response.status_code != 200:
-        #     log_with_task_id(task_id, f"向后端报告进度失败: {response.text}", 'error')
+        response = requests.post(BACKEND_CALLBACK_URL, json=payload, timeout=10)
+        if response.status_code != 200:
+            log_with_task_id(task_id, f"向后端报告进度失败: {response.text}", 'error')
     except Exception as e:
         log_with_task_id(task_id, f"向Java后端报告进度出错: {str(e)}", 'error')
 
-# 自定义进度回调函数
+# 添加进度区间管理器
+class ProgressManager:
+    """
+    进度区间管理器，用于管理整个任务的进度分配和转换
+    将各子流程的进度(0-100%)映射到全局统一的进度范围内
+    """
+    def __init__(self, task_id):
+        self.task_id = task_id
+        self.stages = []  # [(stage_name, start_percent, end_percent, weight)]
+        self.current_stage = 0
+        self.stage_progress = 0
+        self.total_progress = 0
+        self.last_reported_progress = 0
+        
+    def add_stage(self, name, start_percent, end_percent, weight=1.0):
+        """添加处理阶段及其进度区间"""
+        self.stages.append((name, start_percent, end_percent, weight))
+        
+    def set_stage(self, stage_index):
+        """设置当前处理阶段"""
+        if 0 <= stage_index < len(self.stages):
+            self.current_stage = stage_index
+            self.stage_progress = 0
+            stage_name = self.stages[stage_index][0]
+            log_with_task_id(self.task_id, f"进入处理阶段: {stage_name}")
+            return True
+        return False
+        
+    def next_stage(self):
+        """进入下一处理阶段"""
+        return self.set_stage(self.current_stage + 1)
+        
+    def update_progress(self, progress, message=""):
+        """
+        更新当前阶段的进度并转换为全局进度
+        
+        参数:
+            progress: 当前阶段的进度(0-100%)
+            message: 进度消息
+        """
+        # 确保进度在有效范围内
+        progress = max(0, min(100, progress))
+        self.stage_progress = progress
+        
+        # 获取当前阶段信息
+        if self.current_stage < len(self.stages):
+            stage_name, start, end, _ = self.stages[self.current_stage]
+            
+            # 计算全局进度
+            stage_contribution = (progress / 100.0) * (end - start)
+            self.total_progress = start + stage_contribution
+            
+            # 确保进度始终向前，避免后退
+            self.total_progress = max(self.total_progress, self.last_reported_progress)
+            
+            # 限制进度突变幅度
+            if self.total_progress - self.last_reported_progress > 5 and self.last_reported_progress > 0:
+                self.total_progress = self.last_reported_progress + 5
+                
+            # 更新上次报告的进度
+            self.last_reported_progress = self.total_progress
+            
+            # 构建进度消息
+            if not message:
+                message = f"{stage_name}: {progress:.1f}%"
+            else:
+                message = f"{stage_name}: {message}"
+                
+            return self.total_progress, message
+        
+        return 0, message
+    
+    def create_stage_callback(self, status_handler):
+        """
+        为当前阶段创建进度回调适配器
+        
+        参数:
+            status_handler: 负责处理状态的函数，接收(status, progress, message)
+        """
+        def progress_adapter(status, progress, message=""):
+            # 将子流程进度适配到当前阶段的整体进度区间
+            if status in ('error', 'failed'):
+                # 错误状态直接传递
+                status_handler(status, progress, message)
+                return
+                
+            if status in ('complete', 'completed') and progress >= 100:
+                # 完成状态，自动进入下一阶段
+                self.next_stage()
+                
+            # 更新并转换进度
+            global_progress, enhanced_message = self.update_progress(progress, message)
+            
+            # 调用状态处理函数
+            status_handler(status, global_progress, enhanced_message)
+        
+        return progress_adapter
+
+# 修改现有进度回调工厂函数
 def create_progress_callback(task_id):
     """创建针对特定任务的进度回调函数"""
-    def progress_callback(status, progress, message=""):
+    
+    # 内部状态处理函数
+    def handle_status(status, progress, message=""):
+        # 记录进度日志
+        log_with_task_id(task_id, f"任务进度: {status} - {progress:.1f}% - {message}")
+        
         # 将status转换为TaskStatus
         task_status = TaskStatus.PROCESSING
-        if status == 'complete':
-            task_status = TaskStatus.COMPLETED
-        elif status == 'error':
+        if status == 'error' or status == 'failed':
             task_status = TaskStatus.FAILED
+        elif status == 'complete' or status == 'completed':
+            if progress >= 100:
+                task_status = TaskStatus.COMPLETED
         
-        # 更新并通知Java后端
+        # 限制进度范围在5-95之间，预留开始和结束的余量
+        if progress < 5:
+            progress = 5
+        elif progress > 95 and task_status != TaskStatus.COMPLETED:
+            progress = 95
+            
+        # 更新并通知后端
         update_task_status(task_id, task_status, progress, message)
     
-    return progress_callback
+    return handle_status
 
 def process_video_segment(task_id, task_params):
     """处理视频分割任务"""
@@ -316,28 +426,40 @@ def process_video_segment(task_id, task_params):
         "composite_video_path": None
     }
     
-    # 更新任务状态为处理中
-    update_task_status(task_id, TaskStatus.PROCESSING, 5, "正在准备任务资源...")
+    # 创建进度管理器，并配置处理阶段
+    progress_mgr = ProgressManager(task_id)
+    # 定义处理阶段和进度分配
+    progress_mgr.add_stage("准备阶段", 0, 5)       # 0-5%: 初始检查和准备
+    progress_mgr.add_stage("视频分割", 5, 65)      # 5-65%: 视频提取和掩码生成(最耗时)
+    progress_mgr.add_stage("背景合成", 65, 95)     # 65-95%: 背景应用
+    progress_mgr.add_stage("完成阶段", 95, 100)    # 95-100%: 清理和完成
+    
+    # 创建基础回调处理函数
+    base_callback = create_progress_callback(task_id)
+    
+    # 更新任务状态为处理中，开始第一阶段
+    progress_mgr.set_stage(0)
+    base_callback('processing', progress_mgr.update_progress(0, "正在准备任务资源...")[0], "正在准备任务资源...")
     
     try:
         # 检查输入文件是否存在
         if not os.path.exists(origin_video_path):
             error_msg = f"输入视频不存在: {origin_video_path}"
             log_with_task_id(task_id, error_msg, 'error')
-            update_task_status(task_id, TaskStatus.FAILED, 100, error_msg)
+            base_callback('error', 100, error_msg)
             return result
         
         if not os.path.exists(bg_path):
             error_msg = f"背景图片不存在: {bg_path}"
             log_with_task_id(task_id, error_msg, 'error')
-            update_task_status(task_id, TaskStatus.FAILED, 100, error_msg)
+            base_callback('error', 100, error_msg)
             return result
         
         # 检查模型配置是否存在
         if model_name not in model_config:
             error_msg = f"未知的模型名称: {model_name}"
             log_with_task_id(task_id, error_msg, 'error')
-            update_task_status(task_id, TaskStatus.FAILED, 100, error_msg)
+            base_callback('error', 100, error_msg)
             return result
         
         # 检查模型是否可用
@@ -345,26 +467,8 @@ def process_video_segment(task_id, task_params):
         if model_info.get("available") is False:
             error_msg = f"错误: 模型暂时不可用: {model_name}. 原因: {model_info.get('reason', '未知')}"
             log_with_task_id(task_id, error_msg, 'error')
-            update_task_status(task_id, TaskStatus.FAILED, 100, error_msg)
+            base_callback('error', 100, error_msg)
             return result
-        
-        # 创建进度回调函数
-        def progress_callback(status, progress, message=""):
-            log_with_task_id(task_id, f"任务进度: {status} - {progress}% - {message}")
-            task_status = TaskStatus.PROCESSING
-            if status == "failed":
-                task_status = TaskStatus.FAILED
-            elif status == "completed":
-                if progress >= 100:
-                    task_status = TaskStatus.COMPLETED
-            
-            # 限制进度范围在5-95之间，预留开始和结束的余量
-            if progress < 5:
-                progress = 5
-            elif progress > 95 and task_status != TaskStatus.COMPLETED:
-                progress = 95
-                
-            update_task_status(task_id, task_status, progress, message)
         
         # 构建输出路径
         video_name = os.path.splitext(os.path.basename(origin_video_path))[0]
@@ -384,17 +488,24 @@ def process_video_segment(task_id, task_params):
             f"foreground-{video_name}-{bg_name}-{model_name}-{image_size[0]}x{image_size[1]}.mp4"
         )
         
+        # 更新第一阶段完成进度
+        base_callback('processing', progress_mgr.update_progress(100, "准备工作完成")[0], "准备工作完成")
+        
         # 检查掩码视频是否已存在
         skip_segmentation = False
         if os.path.exists(mask_video_path):
             log_with_task_id(task_id, f"掩码视频已存在，跳过分割阶段: {mask_video_path}")
             skip_segmentation = True
-            update_task_status(task_id, TaskStatus.PROCESSING, 50, "已找到现有掩码视频，跳过分割阶段")
+            # 直接进入背景合成阶段
+            progress_mgr.set_stage(2)
+            base_callback('processing', progress_mgr.update_progress(0, "已找到现有掩码视频，跳过分割阶段")[0], "已找到现有掩码视频，跳过分割阶段")
+        else:
+            # 进入视频分割阶段
+            progress_mgr.set_stage(1)
+            base_callback('processing', progress_mgr.update_progress(0, "正在进行视频分割...")[0], "正在进行视频分割...")
         
         # 阶段1: 视频分割，生成掩码视频
         if not skip_segmentation:
-            update_task_status(task_id, TaskStatus.PROCESSING, 10, "正在进行视频分割...")
-            
             try:
                 log_with_task_id(task_id, f"开始提取视频: {origin_video_path}")
                 model_path = model_config[model_name]["model_path"]
@@ -402,36 +513,48 @@ def process_video_segment(task_id, task_params):
                 batch_size = model_config[model_name].get("max_batch_size", 4)
                 log_with_task_id(task_id, f"使用模型 {model_name}, 方法 {method}")
                 
-                # 提取视频，生成掩码
+                # 获取当前阶段的进度适配器
+                extraction_callback = progress_mgr.create_stage_callback(base_callback)
+                
+                # 执行视频分割
                 mask_path = extract_video(
                     video_path=origin_video_path,
                     model_path=model_path,
+                    foreground_video_path=foreground_video_path,
                     output_mask_path=mask_video_path,
                     method=method,
                     image_size=image_size,
                     batch_size=batch_size,
-                    callback=progress_callback
+                    callback=extraction_callback
                 )
                 
                 # 检查掩码是否成功创建
                 if not os.path.exists(mask_video_path):
                     error_msg = f"视频分割失败，无法创建掩码视频: {mask_video_path}"
                     log_with_task_id(task_id, error_msg, 'error')
-                    update_task_status(task_id, TaskStatus.FAILED, 100, error_msg)
+                    base_callback('error', 100, error_msg)
                     return result
                 
                 log_with_task_id(task_id, f"视频分割完成，掩码生成在: {mask_path}")
+                # 确保视频分割阶段进度为100%
+                base_callback('processing', progress_mgr.update_progress(100, "掩码视频生成完成")[0], "掩码视频生成完成")
                 
             except Exception as e:
                 error_msg = f"视频分割过程中出错: {str(e)}"
                 log_with_task_id(task_id, error_msg, 'error')
                 log_with_task_id(task_id, traceback.format_exc(), 'error')
-                update_task_status(task_id, TaskStatus.FAILED, 100, error_msg)
+                base_callback('error', 100, error_msg)
                 return result
         
         # 阶段2: 应用背景
         try:
-            update_task_status(task_id, TaskStatus.PROCESSING, 60, "正在应用自定义背景...")
+            # 如果没有跳过分割阶段，需要主动设置当前阶段
+            if not skip_segmentation:
+                progress_mgr.set_stage(2)
+                base_callback('processing', progress_mgr.update_progress(0, "正在应用自定义背景...")[0], "正在应用自定义背景...")
+            
+            # 创建背景合成阶段的进度适配器
+            compositing_callback = progress_mgr.create_stage_callback(base_callback)
             
             # 应用背景
             composite_path = apply_custom_background(
@@ -440,7 +563,7 @@ def process_video_segment(task_id, task_params):
                 background_path=bg_path,
                 output_composite_path=composite_video_path,
                 include_audio=True,
-                callback=progress_callback
+                callback=compositing_callback
             )
             
             result["composite_video_path"] = composite_path
@@ -449,26 +572,32 @@ def process_video_segment(task_id, task_params):
             if not os.path.exists(composite_video_path):
                 error_msg = f"应用背景失败，无法创建合成视频: {composite_video_path}"
                 log_with_task_id(task_id, error_msg, 'error')
-                update_task_status(task_id, TaskStatus.FAILED, 100, error_msg)
+                base_callback('error', 100, error_msg)
                 return result
             
             log_with_task_id(task_id, f"背景应用完成，合成视频生成在: {composite_path}")
+            # 确保背景合成阶段进度为100%
+            base_callback('processing', progress_mgr.update_progress(100, "背景合成完成")[0], "背景合成完成")
             
         except Exception as e:
             error_msg = f"应用背景过程中出错: {str(e)}"
             log_with_task_id(task_id, error_msg, 'error')
             log_with_task_id(task_id, traceback.format_exc(), 'error')
-            update_task_status(task_id, TaskStatus.FAILED, 100, error_msg)
+            base_callback('error', 100, error_msg)
             return result
         
+        # 进入完成阶段
+        progress_mgr.set_stage(3)
+        base_callback('processing', progress_mgr.update_progress(50, "正在完成任务...")[0], "正在完成任务...")
+        
         # 任务完成
-        update_task_status(task_id, TaskStatus.COMPLETED, 100, "视频分割与背景合成完成")
+        base_callback('completed', 100, "视频分割与背景合成完成")
         
     except Exception as e:
         error_msg = f"任务处理过程中出错: {str(e)}"
         log_with_task_id(task_id, error_msg, 'error')
         log_with_task_id(task_id, traceback.format_exc(), 'error')
-        update_task_status(task_id, TaskStatus.FAILED, 100, error_msg)
+        base_callback('error', 100, error_msg)
     
     return result
 
