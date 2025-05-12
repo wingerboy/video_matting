@@ -924,7 +924,6 @@ def extract_video(
                 error_msg = "错误: 未安装BEN2模型，无法使用此方法"
                 callback('error', map_progress(5), error_msg)
                 print(error_msg)
-                return None
                 
             # 禁用合成视频输出，只生成掩码 (5%-95%)
             predict_video_mask_ben2(
@@ -965,8 +964,6 @@ def extract_video(
             warn_msg = f"警告: 掩码视频or前景视频未生成: {output_mask_path} or {foreground_video_path}"
             callback('processing', map_progress(98), warn_msg)
             print(warn_msg)
-        
-        return output_mask_path
     
     except Exception as e:
         error_msg = f"视频处理出错: {e}"

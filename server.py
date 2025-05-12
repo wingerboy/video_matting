@@ -13,7 +13,7 @@ from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 import uvicorn
 import traceback
-from video_extractor import extract_video, apply_custom_background, default_callback, HAS_MOVIEPY
+from video_extractor import extract_video, apply_custom_background, HAS_MOVIEPY
 
 # 配置日志
 class TaskIDFilter(logging.Filter):
@@ -484,7 +484,7 @@ def process_video_segment(task_id, task_params):
             f"composite-{video_name}-{bg_name}-{model_name}-{image_size[0]}x{image_size[1]}.mp4"
         )
         foreground_video_path = os.path.join(
-            OUTPUT_PATH, 
+            FORE_VIDEO_PATH, 
             f"foreground-{video_name}-{bg_name}-{model_name}-{image_size[0]}x{image_size[1]}.mp4"
         )
         
@@ -517,7 +517,7 @@ def process_video_segment(task_id, task_params):
                 extraction_callback = progress_mgr.create_stage_callback(base_callback)
                 
                 # 执行视频分割
-                mask_path = extract_video(
+                extract_video(
                     video_path=origin_video_path,
                     model_path=model_path,
                     foreground_video_path=foreground_video_path,
