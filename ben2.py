@@ -1355,14 +1355,11 @@ class BEN_Base(nn.Module):
             
             if output_composite_path and foregrounds:
                 self.save_frames_with_bg(foregrounds, output_composite_path, fps, rgb_value, orig_width, orig_height)
-            
-            return output_mask_path, output_composite_path
         
         except Exception as e:
             print(f"视频处理错误: {e}")
             import traceback
             traceback.print_exc()
-            return None, None
 
     
     def save_frames_to_video(self, masks, output_path, fps, is_mask=True):
