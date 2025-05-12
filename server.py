@@ -417,8 +417,11 @@ def process_video_segment(task_id, task_params):
     # 提取参数
     origin_video_path = task_params["origin_video_path"]
     mask_video_path = task_params["mask_video_path"]
+    foreground_video_path = task_params["foreground_video_path"]
+    composite_video_path = task_params["composite_video_path"]
     bg_path = task_params["bg_path"]
     model_name = task_params["model_name"]
+    image_size = task_params["image_size"]
     
     # 初始化返回值
     result = {
@@ -441,53 +444,7 @@ def process_video_segment(task_id, task_params):
     progress_mgr.set_stage(0)
     base_callback('processing', progress_mgr.update_progress(0, "正在准备任务资源...")[0], "正在准备任务资源...")
     
-    try:
-        # 检查输入文件是否存在
-        if not os.path.exists(origin_video_path):
-            error_msg = f"输入视频不存在: {origin_video_path}"
-            log_with_task_id(task_id, error_msg, 'error')
-            base_callback('error', 100, error_msg)
-            return result
-        
-        if not os.path.exists(bg_path):
-            error_msg = f"背景图片不存在: {bg_path}"
-            log_with_task_id(task_id, error_msg, 'error')
-            base_callback('error', 100, error_msg)
-            return result
-        
-        # 检查模型配置是否存在
-        if model_name not in model_config:
-            error_msg = f"未知的模型名称: {model_name}"
-            log_with_task_id(task_id, error_msg, 'error')
-            base_callback('error', 100, error_msg)
-            return result
-        
-        # 检查模型是否可用
-        model_info = model_config[model_name]
-        if model_info.get("available") is False:
-            error_msg = f"错误: 模型暂时不可用: {model_name}. 原因: {model_info.get('reason', '未知')}"
-            log_with_task_id(task_id, error_msg, 'error')
-            base_callback('error', 100, error_msg)
-            return result
-        
-        # 构建输出路径
-        video_name = os.path.splitext(os.path.basename(origin_video_path))[0]
-        bg_name = os.path.splitext(os.path.basename(bg_path))[0]
-        image_size = model_config[model_name].get("image_size", (1024, 1024))
-        
-        # 确保输出目录存在
-        os.makedirs(os.path.dirname(mask_video_path), exist_ok=True)
-        
-        # 构建合成视频输出路径
-        composite_video_path = os.path.join(
-            OUTPUT_PATH, 
-            f"composite-{video_name}-{bg_name}-{model_name}-{image_size[0]}x{image_size[1]}.mp4"
-        )
-        foreground_video_path = os.path.join(
-            FORE_VIDEO_PATH, 
-            f"foreground-{video_name}-{bg_name}-{model_name}-{image_size[0]}x{image_size[1]}.mp4"
-        )
-        
+    try:        
         # 更新第一阶段完成进度
         base_callback('processing', progress_mgr.update_progress(100, "准备工作完成")[0], "准备工作完成")
         
@@ -535,7 +492,7 @@ def process_video_segment(task_id, task_params):
                     base_callback('error', 100, error_msg)
                     return result
                 
-                log_with_task_id(task_id, f"视频分割完成，掩码生成在: {mask_path}")
+                log_with_task_id(task_id, f"视频分割完成，掩码生成在: {mask_video_path}")
                 # 确保视频分割阶段进度为100%
                 base_callback('processing', progress_mgr.update_progress(100, "掩码视频生成完成")[0], "掩码视频生成完成")
                 
@@ -667,22 +624,33 @@ async def video_segment_task_executor(
             
         # 确保mask_video_path有值
         mask_video_path = request.foregroundPath
+        # 构建默认路径
+        video_name = os.path.splitext(os.path.basename(request.videoPath))[0]
+        bg_name = os.path.splitext(os.path.basename(request.backgroundPath))[0]
+        model_name = request.modelName
+        image_size = model_config[model_name].get("image_size", (1024, 1024))
         if not mask_video_path:
-            # 构建默认路径
-            video_name = os.path.splitext(os.path.basename(request.videoPath))[0]
-            bg_name = os.path.splitext(os.path.basename(request.backgroundPath))[0]
-            model_name = request.modelName
-            image_size = model_config[model_name].get("image_size", (1024, 1024))
             
             mask_video_path = os.path.join(
                 MASK_VIDEO_PATH, 
                 f"mask-{video_name}-{bg_name}-{model_name}-{image_size[0]}x{image_size[1]}.mp4"
             )
             log_with_task_id(task_id, f"使用默认掩码路径: {mask_video_path}")
-            
+        # 构建合成视频输出路径
+        composite_video_path = os.path.join(
+            OUTPUT_PATH, 
+            f"composite-{video_name}-{bg_name}-{model_name}-{image_size[0]}x{image_size[1]}.mp4"
+        )
+        foreground_video_path = os.path.join(
+            FORE_VIDEO_PATH, 
+            f"foreground-{video_name}-{bg_name}-{model_name}-{image_size[0]}x{image_size[1]}.mp4"
+        )
+        log_with_task_id(task_id, f"使用默认合成视频路径: {composite_video_path}")
+        log_with_task_id(task_id, f"使用默认前景视频路径: {foreground_video_path}")
         # 确保目录存在
         os.makedirs(os.path.dirname(mask_video_path), exist_ok=True)
-        os.makedirs(OUTPUT_PATH, exist_ok=True)
+        os.makedirs(os.path.dirname(foreground_video_path), exist_ok=True)
+        os.makedirs(os.path.dirname(composite_video_path), exist_ok=True)
         
         # 如果提供了回调URL，更新全局回调URL
         if request.callbackUrl:
@@ -701,8 +669,11 @@ async def video_segment_task_executor(
             "task_id": task_id,
             "origin_video_path": request.videoPath,
             "mask_video_path": mask_video_path,
+            "foreground_video_path": foreground_video_path,
+            "composite_video_path": composite_video_path,
             "bg_path": request.backgroundPath,
-            "model_name": request.modelName
+            "model_name": request.modelName,
+            "image_size": image_size
         }
         
         # 更新任务状态为等待中
@@ -717,7 +688,8 @@ async def video_segment_task_executor(
             "taskId": task_id,
             "status": "accepted",
             "message": "视频分割任务已接收并开始处理",
-            "maskVideoPath": mask_video_path
+            "maskVideoPath": mask_video_path,
+            "compositeVideoPath": composite_video_path
         }
     except Exception as e:
         error_msg = f"处理请求时出错: {str(e)}"
