@@ -15,7 +15,9 @@ import uvicorn
 import traceback
 from video_extractor import extract_video, apply_custom_background, HAS_MOVIEPY
 from logger_handler import get_logger
-INSTANCE_ID = os.environ.get("INSTANCE_ID") or "to74zigu-nx6sqm6b"
+
+
+INSTANCE_ID = "inference-" + (os.environ.get("INSTANCE_ID") or "to74zigu-nx6sqm6b")
 
 # 初始化日志
 logger = get_logger(f"server-{INSTANCE_ID}")
