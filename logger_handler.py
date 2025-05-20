@@ -72,29 +72,3 @@ def get_logger(name=None, log_dir='logs', log_level=logging.INFO):
     
     return logger
 
-# 统一的日志记录函数
-def log_with_task_id(task_id, message, level='info', logger_name=None):
-    """
-    使用任务ID记录日志
-    
-    参数:
-        task_id: 任务ID
-        message: 日志消息
-        level: 日志级别 (debug, info, warning, error, critical)
-        logger_name: 日志记录器名称，不提供则使用__name__
-    """
-    logger = get_logger(logger_name)
-    extra = {'task_id': task_id if task_id else 'no-task-id'}
-    
-    if level == 'debug':
-        logger.debug(message, extra=extra)
-    elif level == 'info':
-        logger.info(message, extra=extra)
-    elif level == 'warning':
-        logger.warning(message, extra=extra)
-    elif level == 'error':
-        logger.error(message, extra=extra)
-    elif level == 'critical':
-        logger.critical(message, extra=extra)
-    else:
-        logger.info(message, extra=extra) 

@@ -14,16 +14,41 @@ from pydantic import BaseModel
 import uvicorn
 import traceback
 from video_extractor import extract_video, apply_custom_background, HAS_MOVIEPY
-from logger_handler import log_with_task_id, get_logger
+from logger_handler import get_logger
+INSTANCE_ID = os.environ.get("INSTANCE_ID") or "to74zigu-nx6sqm6b"
 
 # 初始化日志
-logger = get_logger("server")
+logger = get_logger(f"server-{INSTANCE_ID}")
+# 统一的日志记录函数
+def log_with_task_id(task_id, message, level='info'):
+    """
+    使用任务ID记录日志
+    
+    参数:
+        task_id: 任务ID
+        message: 日志消息
+        level: 日志级别 (debug, info, warning, error, critical)
+        logger_name: 日志记录器名称，不提供则使用__name__
+    """
+    extra = {'task_id': task_id if task_id else 'no-task-id'}
+    
+    if level == 'debug':
+        logger.debug(message, extra=extra)
+    elif level == 'info':
+        logger.info(message, extra=extra)
+    elif level == 'warning':
+        logger.warning(message, extra=extra)
+    elif level == 'error':
+        logger.error(message, extra=extra)
+    elif level == 'critical':
+        logger.critical(message, extra=extra)
+    else:
+        logger.info(message, extra=extra) 
 
 app = FastAPI(title="AI视频处理服务")
 
 # 存储任务状态的字典
 tasks_status = {}
-INSTANCE_ID = os.environ.get("INSTANCE_ID") or "to74zigu-nx6sqm6b"
 
 # 后端回调地址 (可配置)
 BACKEND_URL="https://to74zigu-nx6sqm6b-6001.zjrestapi.gpufree.cn:8443"
