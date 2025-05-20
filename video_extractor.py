@@ -85,7 +85,7 @@ from logger_handler import get_logger
 
 # 创建日志记录器
 logger = get_logger("video_extractor")
-def log_with_task_id(task_id = "standalone", message, level='info'):
+def log_with_task_id(task_id, message, level='info'):
     """
     使用任务ID记录日志
     
@@ -109,6 +109,8 @@ def log_with_task_id(task_id = "standalone", message, level='info'):
         logger.critical(message, extra=extra)
     else:
         logger.info(message, extra=extra) 
+# 默认任务ID，用于独立运行时
+default_task_id = "standalone"
 
 # 尝试导入BEN2模型
 try:
