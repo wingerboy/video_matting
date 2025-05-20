@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
 统一日志处理模块
@@ -17,7 +16,7 @@ from logging.handlers import TimedRotatingFileHandler
 # 确保日志目录存在
 def ensure_log_dir(log_dir='logs'):
     """确保日志目录存在"""
-    log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), log_dir)
+    log_dir = os.path.join('/root/gpufree-share/workspace/video_matting', log_dir)
     os.makedirs(log_dir, exist_ok=True)
     return log_dir
 
@@ -65,7 +64,7 @@ def get_logger(name=None, log_dir='logs', log_level=logging.INFO):
         filename=log_file,
         when='midnight',  # 每天午夜分割
         interval=1,       # 1天一个日志文件
-        backupCount=10,   # 保留30天的日志
+        backupCount=10,   # 保留10天的日志
         encoding='utf-8'
     )
     file_handler.setFormatter(formatter)
