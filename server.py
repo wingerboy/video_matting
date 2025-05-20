@@ -61,9 +61,7 @@ def log_with_task_id(task_id, message, level='info'):
 
 # 存储任务状态的字典
 tasks_status = {}
-INSTANCE_ID = os.environ["INSTANCE_ID"]
-if not INSTANCE_ID:
-    INSTANCE_ID = "nx6sqm6b"
+INSTANCE_ID = os.environ.get("INSTANCE_ID") or "nx6sqm6b"
 
 # 后端回调地址 (可配置)
 BACKEND_URL="https://to74zigu-nx6sqm6b-6001.zjrestapi.gpufree.cn:8443"
