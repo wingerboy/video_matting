@@ -8,6 +8,8 @@ BiRefNet*.pth
 *.bin
 *.pt
 
+get_access_token.py
+
 # 视频和图像文件
 *.mp4
 *.avi

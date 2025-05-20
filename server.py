@@ -61,11 +61,14 @@ def log_with_task_id(task_id, message, level='info'):
 
 # 存储任务状态的字典
 tasks_status = {}
+INSTANCE_ID = os.environ["INSTANCE_ID"]
+if not INSTANCE_ID:
+    INSTANCE_ID = "nx6sqm6b"
 
 # 后端回调地址 (可配置)
 BACKEND_URL="https://to74zigu-nx6sqm6b-6001.zjrestapi.gpufree.cn:8443"
 # 当前AI server服务对外地址，按需修改
-CURRENT_WORKER_URL = "https://to74zigu-nx6sqm6b-6002.zjrestapi.gpufree.cn:8443"
+CURRENT_WORKER_URL = f"https://{INSTANCE_ID}-6002.zjrestapi.gpufree.cn:8443"
 
 # 判断两个URL是否属于同一台机器
 def is_same_host(url1, url2):
@@ -683,7 +686,7 @@ async def video_segment_task_executor(
         background_tasks.add_task(process_video_segment, task_id, task_params)
         
         # 立即返回响应
-        log_with_task_id(task_id, "视频分割任务已接收并开始处理")
+        log_with_task_id(task_id, f"视频分割任务已接收并开始处理: {task_params}")
         return {
             "taskId": task_id,
             "status": "accepted",
