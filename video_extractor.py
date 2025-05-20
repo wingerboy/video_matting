@@ -81,12 +81,34 @@ from tqdm import tqdm
 import argparse
 
 # 导入日志处理模块
-from logger_handler import log_with_task_id, get_logger
+from logger_handler import get_logger
 
 # 创建日志记录器
 logger = get_logger("video_extractor")
-# 默认任务ID，用于独立运行时
-default_task_id = "standalone"
+def log_with_task_id(task_id = "standalone", message, level='info'):
+    """
+    使用任务ID记录日志
+    
+    参数:
+        task_id: 任务ID
+        message: 日志消息
+        level: 日志级别 (debug, info, warning, error, critical)
+        logger_name: 日志记录器名称，不提供则使用__name__
+    """
+    extra = {'task_id': task_id if task_id else 'no-task-id'}
+    
+    if level == 'debug':
+        logger.debug(message, extra=extra)
+    elif level == 'info':
+        logger.info(message, extra=extra)
+    elif level == 'warning':
+        logger.warning(message, extra=extra)
+    elif level == 'error':
+        logger.error(message, extra=extra)
+    elif level == 'critical':
+        logger.critical(message, extra=extra)
+    else:
+        logger.info(message, extra=extra) 
 
 # 尝试导入BEN2模型
 try:
