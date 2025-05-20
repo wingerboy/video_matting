@@ -81,32 +81,40 @@ from time import time
 from tqdm import tqdm
 import argparse
 
+# 导入日志处理模块
+from logger_handler import log_with_task_id, get_logger
+
+# 创建日志记录器
+logger = get_logger("video_extractor")
+# 默认任务ID，用于独立运行时
+default_task_id = "standalone"
+
 # 尝试导入BEN2模型
 try:
     import BEN2
     HAS_BEN2 = True
-    print("成功导入BEN2模型")
+    log_with_task_id(default_task_id, "成功导入BEN2模型")
 except ImportError:
     HAS_BEN2 = False
-    print("未找到BEN2模型，将只使用BiRefNet模型")
+    log_with_task_id(default_task_id, "未找到BEN2模型，将只使用BiRefNet模型", 'warning')
 
 # 添加moviepy库用于处理带音频的视频
 try:
     from moviepy.editor import VideoFileClip, ImageSequenceClip, AudioFileClip, ImageClip, VideoClip
     HAS_MOVIEPY = True
-    print("成功导入moviepy库，支持音频处理")
+    log_with_task_id(default_task_id, "成功导入moviepy库，支持音频处理")
 except ImportError:
     HAS_MOVIEPY = False
-    print("未找到moviepy库，输出视频将没有声音。安装: pip install moviepy")
+    log_with_task_id(default_task_id, "未找到moviepy库，输出视频将没有声音。安装: pip install moviepy", 'warning')
 
 # 尝试导入safetensors库
 try:
     from safetensors import safe_open
     HAS_SAFETENSORS = True
-    print("成功导入safetensors库，支持.safetensors格式模型")
+    log_with_task_id(default_task_id, "成功导入safetensors库，支持.safetensors格式模型")
 except ImportError:
     HAS_SAFETENSORS = False
-    print("未找到safetensors库，将只支持.pth格式模型")
+    log_with_task_id(default_task_id, "未找到safetensors库，将只支持.pth格式模型", 'warning')
 
 # 添加models路径到导入路径，以便导入完整版模型
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -114,10 +122,10 @@ try:
     # 尝试导入完整版模型
     from models.birefnet import BiRefNet as FullBiRefNet
     HAS_FULL_MODEL = True
-    print("成功导入完整版BiRefNet模型")
+    log_with_task_id(default_task_id, "成功导入完整版BiRefNet模型")
 except ImportError:
     HAS_FULL_MODEL = False
-    print("未找到完整版BiRefNet模型，将只使用lite版本")
+    log_with_task_id(default_task_id, "未找到完整版BiRefNet模型，将只使用lite版本", 'warning')
 
 # 导入lite版模型
 from birefnet import BiRefNet as LiteBiRefNet
@@ -127,12 +135,12 @@ os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 
 # 设置设备
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f"使用设备: {device}")
+log_with_task_id(default_task_id, f"使用设备: {device}")
 
 # 检查CUDA是否可用
 if device.type == 'cuda':
-    print(f"GPU: {torch.cuda.get_device_name(0)}")
-    print(f"可用GPU内存: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
+    log_with_task_id(default_task_id, f"GPU: {torch.cuda.get_device_name(0)}")
+    log_with_task_id(default_task_id, f"可用GPU内存: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
 
 # 清理状态字典帮助函数
 def check_state_dict(state_dict, unwanted_prefixes=['module.', '_orig_mod.']):
@@ -262,7 +270,7 @@ def refine_foreground_gpu(image, mask, r1=45, r2=3):
     return F_refined
 
 # 添加模型加载函数
-def load_birefnet_model(model_path, device):
+def load_birefnet_model(model_path, device, task_id=default_task_id):
     """
     智能加载BiRefNet模型，自动适应lite和标准版本
     支持.pth和.safetensors格式的模型文件
@@ -270,25 +278,28 @@ def load_birefnet_model(model_path, device):
     参数:
         model_path: 模型权重文件路径
         device: 计算设备(CPU/GPU)
+        task_id: 任务ID，用于日志关联
         
     返回:
         加载好的BiRefNet模型
     """
     # 检查文件是否存在
     if not os.path.exists(model_path):
-        raise FileNotFoundError(f"模型文件不存在: {model_path}")
+        error_msg = f"模型文件不存在: {model_path}"
+        log_with_task_id(task_id, error_msg, 'error')
+        raise FileNotFoundError(error_msg)
         
     # 检测模型文件格式
     is_safetensors = model_path.endswith('.safetensors')
     model_filename = os.path.basename(model_path)
     
-    print(f"模型文件: {model_filename}")
-    print(f"模型格式: {'safetensors' if is_safetensors else 'pth/torch'}")
+    log_with_task_id(task_id, f"模型文件: {model_filename}")
+    log_with_task_id(task_id, f"模型格式: {'safetensors' if is_safetensors else 'pth/torch'}")
     
     # 检测模型类型
     is_lite_model = 'lite' in model_filename.lower()
     model_type = "BiRefNet-lite" if is_lite_model else "BiRefNet(完整版)"
-    print(f"根据文件名检测到模型类型: {model_type}")
+    log_with_task_id(task_id, f"根据文件名检测到模型类型: {model_type}")
     
     # 加载模型权重
     temp_state_dict = {}
@@ -296,19 +307,23 @@ def load_birefnet_model(model_path, device):
     if is_safetensors:
         # 使用safetensors加载模型
         if not HAS_SAFETENSORS:
-            raise ImportError("需要安装safetensors库以加载.safetensors格式模型: pip install safetensors")
+            error_msg = "需要安装safetensors库以加载.safetensors格式模型: pip install safetensors"
+            log_with_task_id(task_id, error_msg, 'error')
+            raise ImportError(error_msg)
             
-        print(f"使用safetensors加载模型文件: {model_path}")
+        log_with_task_id(task_id, f"使用safetensors加载模型文件: {model_path}")
         with safe_open(model_path, framework="pt", device="cpu") as f:
             temp_state_dict = {key: f.get_tensor(key) for key in f.keys()}
     else:
         # 使用torch.load加载模型
-        print("使用torch加载模型文件...")
+        log_with_task_id(task_id, "使用torch加载模型文件...")
         temp_state_dict = torch.load(model_path, map_location='cpu', weights_only=True)
     
     # 检查加载是否成功
     if not temp_state_dict:
-        raise ValueError(f"模型文件加载失败或为空: {model_path}")
+        error_msg = f"模型文件加载失败或为空: {model_path}"
+        log_with_task_id(task_id, error_msg, 'error')
+        raise ValueError(error_msg)
     
     # 通过权重参数维度判断是否为lite版
     bb_weight_shape = None
@@ -322,14 +337,14 @@ def load_birefnet_model(model_path, device):
     if bb_weight_shape:
         # lite版是[96,3,4,4]，完整版是[192,3,4,4]
         is_lite_based_on_shape = bb_weight_shape[0] < 150
-        print(f"根据参数形状推断: {'Lite版' if is_lite_based_on_shape else '完整版'} (嵌入层大小: {bb_weight_shape[0]})")
+        log_with_task_id(task_id, f"根据参数形状推断: {'Lite版' if is_lite_based_on_shape else '完整版'} (嵌入层大小: {bb_weight_shape[0]})")
     
     # 最终判断是否为lite版 (文件名和参数形状都要考虑)
     final_is_lite = is_lite_model or is_lite_based_on_shape
     
     # 使用适当的模型类加载
     if final_is_lite:
-        print("加载Lite版BiRefNet模型")
+        log_with_task_id(task_id, "加载Lite版BiRefNet模型")
         from BiRefNet_config import BiRefNetConfig
         config = BiRefNetConfig(bb_pretrained=False)
         model = LiteBiRefNet(bb_pretrained=False, config=config)
@@ -338,15 +353,15 @@ def load_birefnet_model(model_path, device):
         state_dict = check_state_dict(temp_state_dict)
         try:
             model.load_state_dict(state_dict)
-            print("Lite版模型加载成功")
+            log_with_task_id(task_id, "Lite版模型加载成功")
         except Exception as e:
-            print(f"Lite版模型加载失败，尝试非严格模式: {e}")
+            log_with_task_id(task_id, f"Lite版模型加载失败，尝试非严格模式: {e}", 'warning')
             model.load_state_dict(state_dict, strict=False)
-            print("警告：部分参数未加载")
+            log_with_task_id(task_id, "警告：部分参数未加载", 'warning')
     else:
         # 尝试加载完整版模型
         if HAS_FULL_MODEL:
-            print("加载完整版BiRefNet模型")
+            log_with_task_id(task_id, "加载完整版BiRefNet模型")
             # 使用完整版BiRefNet类
             model = FullBiRefNet(bb_pretrained=False)
             
@@ -354,14 +369,14 @@ def load_birefnet_model(model_path, device):
             state_dict = check_state_dict(temp_state_dict)
             try:
                 model.load_state_dict(state_dict)
-                print("完整版模型加载成功")
+                log_with_task_id(task_id, "完整版模型加载成功")
             except Exception as e:
-                print(f"完整版模型加载失败，尝试非严格模式: {e}")
+                log_with_task_id(task_id, f"完整版模型加载失败，尝试非严格模式: {e}", 'warning')
                 model.load_state_dict(state_dict, strict=False)
-                print("警告：部分参数未加载")
+                log_with_task_id(task_id, "警告：部分参数未加载", 'warning')
         else:
-            print("检测到完整版模型，但models.birefnet模块不可用")
-            print("将尝试以Lite版模型加载，部分功能可能无法使用")
+            log_with_task_id(task_id, "检测到完整版模型，但models.birefnet模块不可用", 'warning')
+            log_with_task_id(task_id, "将尝试以Lite版模型加载，部分功能可能无法使用", 'warning')
             
             # 使用Lite版模型加载
             from BiRefNet_config import BiRefNetConfig
@@ -371,7 +386,7 @@ def load_birefnet_model(model_path, device):
             # 使用非严格模式加载
             state_dict = check_state_dict(temp_state_dict)
             model.load_state_dict(state_dict, strict=False)
-            print("警告：以Lite版模型加载完整版权重，部分参数未加载")
+            log_with_task_id(task_id, "警告：以Lite版模型加载完整版权重，部分参数未加载", 'warning')
     
     # 将模型移至设备
     model = model.to(device)
@@ -380,7 +395,7 @@ def load_birefnet_model(model_path, device):
     return model
 
 # 添加背景图像处理函数
-def load_background(bg_path, target_size, device):
+def load_background(bg_path, target_size, device, task_id=default_task_id):
     """
     加载并处理背景图像
     
@@ -388,12 +403,15 @@ def load_background(bg_path, target_size, device):
         bg_path: 背景图像路径
         target_size: 目标大小 (width, height)
         device: 计算设备
+        task_id: 任务ID，用于日志关联
         
     返回:
         处理后的背景图像张量 [3, H, W]
     """
     if not os.path.exists(bg_path):
-        raise FileNotFoundError(f"背景图像不存在: {bg_path}")
+        error_msg = f"背景图像不存在: {bg_path}"
+        log_with_task_id(task_id, error_msg, 'error')
+        raise FileNotFoundError(error_msg)
         
     try:
         bg_img = Image.open(bg_path).convert("RGB")
@@ -405,12 +423,12 @@ def load_background(bg_path, target_size, device):
         ])
         
         bg_tensor = transform(bg_img).to(device)
-        print(f"成功加载背景图像: {bg_path}, 大小: {target_size}")
+        log_with_task_id(task_id, f"成功加载背景图像: {bg_path}, 大小: {target_size}")
         return bg_tensor
         
     except Exception as e:
-        print(f"加载背景图像失败: {e}")
-        print("将使用默认绿色背景")
+        log_with_task_id(task_id, f"加载背景图像失败: {e}", 'error')
+        log_with_task_id(task_id, "将使用默认绿色背景", 'warning')
         return None
 
 def create_color_background(color, target_size, device):
@@ -473,7 +491,7 @@ def predict_video_mask_birefnet(
     
     # 初始化状态
     callback('processing', map_progress(0), f"开始处理视频: {video_path}")
-    print(f"处理视频: {video_path}")
+    log_with_task_id(default_task_id, f"处理视频: {video_path}")
     
     try:
         # 使用智能加载函数加载模型 (大约占10%)
@@ -483,9 +501,9 @@ def predict_video_mask_birefnet(
         # 使用半精度加速
         use_fp16 = device.type == 'cuda'
         if use_fp16:
-            print("使用FP16半精度加速")
+            log_with_task_id(default_task_id, "使用FP16半精度加速")
             birefnet = birefnet.half()
-            print(f"模型已转换为半精度: {next(birefnet.parameters()).dtype}")
+            log_with_task_id(default_task_id, f"模型已转换为半精度: {next(birefnet.parameters()).dtype}")
         
         # 打开视频
         cap = cv2.VideoCapture(video_path)
@@ -496,7 +514,7 @@ def predict_video_mask_birefnet(
         ret, first_frame = cap.read()
         if not ret:
             callback('error', map_progress(10), "无法读取视频")
-            print("无法读取视频")
+            log_with_task_id(default_task_id, "无法读取视频", 'warning')
             
         original_h, original_w = first_frame.shape[:2]
         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # 重置到开始
@@ -597,7 +615,7 @@ def predict_video_mask_birefnet(
                 except Exception as e:
                     error_msg = f"处理帧 {frame_idx} 时发生错误: {e}"
                     callback('error', map_progress(frame_progress), error_msg)
-                    print(error_msg)
+                    log_with_task_id(default_task_id, error_msg, 'error')
                     import traceback
                     traceback.print_exc()
                     # 如果是第一批帧就失败，则退出
@@ -622,20 +640,20 @@ def predict_video_mask_birefnet(
         # 验证输出文件存在
         if not os.path.exists(output_mask_path) or not os.path.exists(output_composite_path):
             callback('processing', map_progress(95), "输出文件可能未正确生成")
-            print("警告: 输出文件可能未正确生成")
+            log_with_task_id(default_task_id, "警告: 输出文件可能未正确生成", 'warning')
         
         # 处理完成
         callback('completed', map_progress(100), f"处理完成，平均速度: {fps_achieved:.2f} FPS")
-        print(f"视频处理完成!")
-        print(f"总时间: {total_time:.2f}秒")
-        print(f"平均处理速度: {fps_achieved:.2f} FPS")
-        print(f"输出文件:")
-        print(f"1. 掩码视频: {output_mask_path}")
-        print(f"2. 合成视频: {output_composite_path}")
+        log_with_task_id(default_task_id, f"视频处理完成!")
+        log_with_task_id(default_task_id, f"总时间: {total_time:.2f}秒")
+        log_with_task_id(default_task_id, f"平均处理速度: {fps_achieved:.2f} FPS")
+        log_with_task_id(default_task_id, f"输出文件:")
+        log_with_task_id(default_task_id, f"1. 掩码视频: {output_mask_path}")
+        log_with_task_id(default_task_id, f"2. 合成视频: {output_composite_path}")
     
     except Exception as e:
         callback('error', map_progress(50), f"处理视频时发生错误: {e}")
-        print(f"处理视频时发生错误: {e}")
+        log_with_task_id(default_task_id, f"处理视频时发生错误: {e}", 'error')
         import traceback
         traceback.print_exc()
 
@@ -674,8 +692,8 @@ def predict_video_mask_ben2(
     if not HAS_BEN2:
         error_msg = "错误: 未安装BEN2模型，无法使用此方法"
         callback('error', map_progress(0), error_msg)
-        print(error_msg)
-        print("请安装BEN2模型后重试")
+        log_with_task_id(default_task_id, error_msg, 'error')
+        log_with_task_id(default_task_id, "请安装BEN2模型后重试", 'warning')
         return None, None
         
     # 初始化状态
@@ -687,7 +705,7 @@ def predict_video_mask_ben2(
         model = BEN2.BEN_Base().to(device).eval()
         model.loadcheckpoints(model_path)
         
-        print(f"成功加载BEN2模型: {model_path}")
+        log_with_task_id(default_task_id, f"成功加载BEN2模型: {model_path}")
         
         # 确保输出目录存在
         os.makedirs(os.path.dirname(output_mask_path), exist_ok=True)
@@ -721,29 +739,29 @@ def predict_video_mask_ben2(
             # 检查输出文件是否存在
             if not os.path.exists(output_mask_path):
                 callback('processing', map_progress(95), "掩码视频文件未生成")
-                print("警告: 掩码视频文件未生成")
+                log_with_task_id(default_task_id, "警告: 掩码视频文件未生成", 'warning')
                 result_mask_path = None
                 
             if not os.path.exists(output_composite_path):
                 callback('processing', map_progress(95), "合成视频文件未生成")
-                print("警告: 合成视频文件未生成")
+                log_with_task_id(default_task_id, "警告: 合成视频文件未生成", 'warning')
                 result_composite_path = None
             
             # 处理完成
             callback('completed', map_progress(100), "BEN2视频处理完成")
-            print(f"BEN2视频处理完成")
-            print(f"输出文件:")
+            log_with_task_id(default_task_id, f"BEN2视频处理完成")
+            log_with_task_id(default_task_id, f"输出文件:")
             if result_mask_path:
-                print(f"1. 掩码视频: {result_mask_path}")
+                log_with_task_id(default_task_id, f"1. 掩码视频: {result_mask_path}")
             if result_composite_path:
-                print(f"2. 合成视频: {result_composite_path}")
+                log_with_task_id(default_task_id, f"2. 合成视频: {result_composite_path}")
                 
             return result_mask_path, result_composite_path
             
         except Exception as e:
             error_msg = f"BEN2视频处理出错: {e}"
             callback('error', map_progress(60), error_msg)
-            print(error_msg)
+            log_with_task_id(default_task_id, error_msg, 'error')
             import traceback
             traceback.print_exc()
             return None, None
@@ -751,7 +769,7 @@ def predict_video_mask_ben2(
     except Exception as e:
         error_msg = f"BEN2处理视频时出错: {e}"
         callback('error', map_progress(30), error_msg)
-        print(error_msg)
+        log_with_task_id(default_task_id, error_msg, 'error')
         import traceback
         traceback.print_exc()
         return None, None
@@ -850,13 +868,13 @@ def apply_custom_background(
         
         # 完成
         callback('completed', map_progress(100), "合成视频处理完成")
-        print(f"合成视频处理完成: {output_composite_path}")
+        log_with_task_id(default_task_id, f"合成视频处理完成: {output_composite_path}")
         return output_composite_path
     
     except Exception as e:
         error_msg = f"合成视频处理出错: {e}"
         callback('error', map_progress(50), error_msg)
-        print(error_msg)
+        log_with_task_id(default_task_id, error_msg, 'error')
         import traceback
         traceback.print_exc()
         
@@ -923,7 +941,7 @@ def extract_video(
             if not HAS_BEN2:
                 error_msg = "错误: 未安装BEN2模型，无法使用此方法"
                 callback('error', map_progress(5), error_msg)
-                print(error_msg)
+                log_with_task_id(default_task_id, error_msg, 'error')
                 
             # 禁用合成视频输出，只生成掩码 (5%-95%)
             predict_video_mask_ben2(
@@ -959,16 +977,16 @@ def extract_video(
         # 检查输出文件是否存在
         if os.path.exists(output_mask_path) and os.path.exists(foreground_video_path):
             callback('completed', map_progress(100), "掩码视频生成完成")
-            print(f"掩码视频生成完成: {output_mask_path}, 前景视频生成完成: {foreground_video_path}")
+            log_with_task_id(default_task_id, f"掩码视频生成完成: {output_mask_path}, 前景视频生成完成: {foreground_video_path}")
         else:
             warn_msg = f"警告: 掩码视频or前景视频未生成: {output_mask_path} or {foreground_video_path}"
             callback('processing', map_progress(98), warn_msg)
-            print(warn_msg)
+            log_with_task_id(default_task_id, warn_msg, 'warning')
     
     except Exception as e:
         error_msg = f"视频处理出错: {e}"
         callback('error', map_progress(50), error_msg)
-        print(error_msg)
+        log_with_task_id(default_task_id, error_msg, 'error')
         import traceback
         traceback.print_exc()
         return None

@@ -2,7 +2,6 @@ import os
 import time
 import uuid
 import json
-import logging
 import threading
 import requests
 import torch
@@ -14,54 +13,16 @@ from pydantic import BaseModel
 import uvicorn
 import traceback
 from video_extractor import extract_video, apply_custom_background, HAS_MOVIEPY
+from logger_handler import log_with_task_id, get_logger
 
-# 配置日志
-class TaskIDFilter(logging.Filter):
-    """
-    添加任务ID到日志记录的过滤器
-    """
-    def __init__(self, name=''):
-        super().__init__(name)
-        self.task_id = ''
-    
-    def filter(self, record):
-        record.task_id = getattr(record, 'task_id', 'no-task-id')
-        return True
-
-# 创建过滤器实例
-task_id_filter = TaskIDFilter()
-
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(task_id)s] - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler()]
-)
-logger = logging.getLogger(__name__)
-logger.addFilter(task_id_filter)
+# 初始化日志
+logger = get_logger("server")
 
 app = FastAPI(title="AI视频处理服务")
 
-# 创建一个辅助函数，用于在上下文中设置任务ID
-def log_with_task_id(task_id, message, level='info'):
-    """使用任务ID记录日志"""
-    extra = {'task_id': task_id if task_id else 'no-task-id'}
-    if level == 'debug':
-        logger.debug(message, extra=extra)
-    elif level == 'info':
-        logger.info(message, extra=extra)
-    elif level == 'warning':
-        logger.warning(message, extra=extra)
-    elif level == 'error':
-        logger.error(message, extra=extra)
-    elif level == 'critical':
-        logger.critical(message, extra=extra)
-    else:
-        logger.info(message, extra=extra)
-
 # 存储任务状态的字典
 tasks_status = {}
-INSTANCE_ID = os.environ.get("INSTANCE_ID") or "nx6sqm6b"
+INSTANCE_ID = os.environ.get("INSTANCE_ID") or "to74zigu-nx6sqm6b"
 
 # 后端回调地址 (可配置)
 BACKEND_URL="https://to74zigu-nx6sqm6b-6001.zjrestapi.gpufree.cn:8443"
@@ -765,7 +726,7 @@ threading.Thread(target=heartbeat_loop, daemon=True).start()
 if __name__ == "__main__":
     # 服务器配置
     if not HAS_MOVIEPY:
-        logger.warning("警告: 未安装moviepy库，输出视频将没有音频")
+        log_with_task_id("server", "警告: 未安装moviepy库，输出视频将没有音频")
         
     host = os.environ.get("AI_SERVER_HOST", "0.0.0.0")
     port = int(os.environ.get("AI_SERVER_PORT", "6002"))
