@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
 统一日志处理模块
@@ -7,11 +8,32 @@
 2. 支持关联任务ID
 3. 同时输出到控制台和日志文件
 4. 提供简单易用的接口
+5. 使用北京时间显示
 """
 
 import os
 import logging
 from logging.handlers import TimedRotatingFileHandler
+import datetime
+import time
+
+# 自定义北京时间格式化器
+class BeijingTimeFormatter(logging.Formatter):
+    """北京时间格式化器，确保日志使用北京时间"""
+    
+    def formatTime(self, record, datefmt=None):
+        """
+        重写formatTime方法，将时间转换为北京时间
+        """
+        # 获取UTC时间戳
+        utc_time = datetime.datetime.fromtimestamp(record.created)
+        # 转换为北京时间 (UTC+8)
+        beijing_time = utc_time + datetime.timedelta(hours=8)
+        
+        if datefmt:
+            return beijing_time.strftime(datefmt)
+        else:
+            return beijing_time.strftime("%Y-%m-%d %H:%M:%S,%f")[:-3]
 
 # 确保日志目录存在
 def ensure_log_dir(log_dir='logs'):
@@ -51,8 +73,8 @@ def get_logger(name=None, log_dir='logs', log_level=logging.INFO):
     task_id_filter = TaskIDFilter()
     logger.addFilter(task_id_filter)
     
-    # 日志格式
-    formatter = logging.Formatter('%(asctime)s [%(task_id)s] - %(name)s - %(levelname)s - %(message)s')
+    # 使用北京时间格式化器
+    formatter = BeijingTimeFormatter('%(asctime)s [%(task_id)s] - %(name)s - %(levelname)s - %(message)s')
     
     # 控制台处理器
     console_handler = logging.StreamHandler()
@@ -71,4 +93,31 @@ def get_logger(name=None, log_dir='logs', log_level=logging.INFO):
     logger.addHandler(file_handler)
     
     return logger
+
+# 统一的日志记录函数
+def log_with_task_id(task_id, message, level='info', logger_name=None):
+    """
+    使用任务ID记录日志
+    
+    参数:
+        task_id: 任务ID
+        message: 日志消息
+        level: 日志级别 (debug, info, warning, error, critical)
+        logger_name: 日志记录器名称，不提供则使用__name__
+    """
+    logger = get_logger(logger_name)
+    extra = {'task_id': task_id if task_id else 'no-task-id'}
+    
+    if level == 'debug':
+        logger.debug(message, extra=extra)
+    elif level == 'info':
+        logger.info(message, extra=extra)
+    elif level == 'warning':
+        logger.warning(message, extra=extra)
+    elif level == 'error':
+        logger.error(message, extra=extra)
+    elif level == 'critical':
+        logger.critical(message, extra=extra)
+    else:
+        logger.info(message, extra=extra)
 
