@@ -20,7 +20,7 @@ from logger_handler import get_logger
 POD_IP = os.environ.get("pod_ip") or "100.116.215.243"
 
 # 初始化日志
-logger = get_logger(f"server-{INSTANCE_ID}")
+logger = get_logger(f"server-{POD_IP}")
 # 统一的日志记录函数
 def log_with_task_id(task_id, message, level='info'):
     """
