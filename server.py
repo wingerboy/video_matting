@@ -17,7 +17,7 @@ from video_extractor import extract_video, apply_custom_background, HAS_MOVIEPY
 from logger_handler import get_logger
 
 
-INSTANCE_ID = "inference-" + (os.environ.get("INSTANCE_ID") or "to74zigu-nx6sqm6b")
+POD_IP = os.environ.get("pod_ip") or "100.116.215.243"
 
 # 初始化日志
 logger = get_logger(f"server-{INSTANCE_ID}")
@@ -53,9 +53,11 @@ app = FastAPI(title="AI视频处理服务")
 tasks_status = {}
 
 # 后端回调地址 (可配置)
-BACKEND_URL="https://to74zigu-nx6sqm6b-6001.zjrestapi.gpufree.cn:8443"
+# BACKEND_URL="https://to74zigu-nx6sqm6b-6001.zjrestapi.gpufree.cn:8443"
+BACKEND_URL="http://100.116.215.243:6001"
 # 当前AI server服务对外地址，按需修改
-CURRENT_WORKER_URL = f"https://{INSTANCE_ID}-6002.zjrestapi.gpufree.cn:8443"
+# CURRENT_WORKER_URL = f"https://{INSTANCE_ID}-6002.zjrestapi.gpufree.cn:8443"
+CURRENT_WORKER_URL = f"http://{POD_IP}:6002"
 
 # 判断两个URL是否属于同一台机器
 def is_same_host(url1, url2):
